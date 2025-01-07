@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 class RequestStatus(str, Enum):
@@ -13,36 +13,44 @@ class Hero(SQLModel, table=True):
     secret_name: str
     age: int | None = Field(default=None, index=True)
 
-class User(SQLModel, table=True):
+class UserBase(SQLModel):
+    username: str = Field(index=True, unique=True)
+    display_name: str | None = None
+    email: str = Field(index=True, unique=True)
+    phone_number: str = Field(index=True, unique=True)
+    password: str
+    created_at: datetime | None = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    # sent_requests: list["FriendRequest"] = Relationship(back_populates="sender")
+    # received_requests: list["FriendRequest"] = Relationship(back_populates="receiver")
+    # friends: list["Friend"] = Relationship(back_populates="user")
+
+class User(UserBase, table=True):
     user_id: int | None = Field(default=None, primary_key=True)
-    display_name: str
-    username: str
-    email: str
-    phone_number: str
-    password: bytes
-    created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Relationships
-    sent_requests: list["FriendRequest"] = Relationship(back_populates="sender")
-    received_requests: list["FriendRequest"] = Relationship(back_populates="receiver")
-    friends: list["Friend"] = Relationship(back_populates="user")
+class UserCreate(UserBase):
+    pass
 
-class Friend(SQLModel, table=True):
-    friendship_id: int | None = Field(default=None, primary_key=True)
-    user1_id: int = Field(foreign_key="user.user_id")
-    user2_id: int = Field(foreign_key="user.user_id")
-    since: datetime = Field(default_factory=datetime.utcnow)
+class UserUpdate(UserBase):
+    pass
 
-    # Relationships
-    user: User = Relationship(back_populates="friends")
+# class Friend(SQLModel, table=True):
+#     friendship_id: int | None = Field(default=None, primary_key=True)
+#     user1_id: int = Field(foreign_key="user.user_id")
+#     user2_id: int = Field(foreign_key="user.user_id")
+#     since: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class FriendRequest(SQLModel, table=True):
-    request_id: int | None = Field(default=None, primary_key=True)
-    sender_id: int = Field(foreign_key="user.user_id")
-    receiver_id: int = Field(foreign_key="user.user_id")
-    status: RequestStatus = Field(default=RequestStatus.PENDING)
-    sent_at: datetime = Field(default_factory=datetime.utcnow)
+#     # Relationships
+#     user: User = Relationship(back_populates="friends")
 
-    # Relationships
-    sender: User = Relationship(back_populates="sent_requests")
-    receiver: User = Relationship(back_populates="received_requests")
+# class FriendRequest(SQLModel, table=True):
+#     request_id: int | None = Field(default=None, primary_key=True)
+#     sender_id: int = Field(foreign_key="user.user_id")
+#     receiver_id: int = Field(foreign_key="user.user_id")
+#     status: RequestStatus = Field(default=RequestStatus.PENDING)
+#     sent_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+#     # Relationships
+#     sender: User = Relationship(back_populates="sent_requests")
+#     receiver: User = Relationship(back_populates="received_requests")

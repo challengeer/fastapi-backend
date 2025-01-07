@@ -1,5 +1,6 @@
-fastapi
+fastapi[standard]
 uvicorn
 sqlmodel
 pymysql
 python-dotenv
+passlib
