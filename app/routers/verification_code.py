@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from random import randint
 from datetime import datetime, timezone, timedelta
+import secrets
 
 from ..database import get_session
 from ..models.verification_code import VerificationCode, VerificationCodeCreate, VerificationCodeVerify
@@ -11,20 +11,17 @@ router = APIRouter(
     prefix="/verification-code"
 )
 
-def generate_random_code():
-    return randint(100000, 999999)
-
 @router.post("/")
 def create_verification_code(*, session: Session = Depends(get_session), request: VerificationCodeCreate):
     user = session.exec(select(User).where(User.phone_number == request.phone_number)).first()
     if user:
         raise HTTPException(status_code=400, detail="Phone number already registered")
     
-    verification_code = generate_random_code()
+    verification_code = str(secrets.randbelow(900000) + 100000)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
 
     # Check if the phone number already exists
-    existing_record = session.get(User, request.phone_number)
+    existing_record = session.get(VerificationCode, request.phone_number)
     if existing_record:
         # Update the record if it exists
         existing_record.verification_code = verification_code
@@ -46,7 +43,7 @@ def create_verification_code(*, session: Session = Depends(get_session), request
 
 @router.post("/verify")
 def verify_code(*, session: Session = Depends(get_session), request: VerificationCodeVerify):
-    verification_code = session.get(User, request.phone_number)
+    verification_code = session.get(VerificationCode, request.phone_number)
 
     if not verification_code:
         raise HTTPException(status_code=404, detail="Phone number not found")
