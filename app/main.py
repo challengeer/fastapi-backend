@@ -4,7 +4,8 @@ import hashlib
 
 from .database import create_db_and_tables, get_session
 from .routers import verification_code
-from .models import User, UserCreate, UserPublic, FriendRequest, FriendRequestCreate, FriendRequestPublic
+from .models.user import User, UserCreate, UserPublic
+from .models.friend_request import FriendRequest, FriendRequestCreate, FriendRequestPublic
 
 app = FastAPI()
 

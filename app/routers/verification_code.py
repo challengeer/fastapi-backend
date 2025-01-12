@@ -4,7 +4,8 @@ from random import randint
 from datetime import datetime, timezone, timedelta
 
 from ..database import get_session
-from ..models import VerificationCode, VerificationCodeCreate, VerificationCodeVerify, User
+from ..models.verification_code import VerificationCode, VerificationCodeCreate, VerificationCodeVerify
+from ..models.user import User
 
 router = APIRouter(
     prefix="/verification-code"
