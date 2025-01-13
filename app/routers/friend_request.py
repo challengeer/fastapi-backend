@@ -9,7 +9,7 @@ router = APIRouter(
     prefix="/friend-request"
 )
 
-@router.post("/", response_model=FriendRequestPublic)
+@router.post("/")
 def create_friend_request(*, session: Session = Depends(get_session), friend_request: FriendRequestCreate):
     # Check if not self
     if friend_request.sender_id == friend_request.receiver_id:

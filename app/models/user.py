@@ -16,12 +16,12 @@ class UserBase(SQLModel):
 class User(UserBase, table=True):
     user_id: int | None = Field(default=None, primary_key=True)
 
-    friend_requests_sent: list["FriendRequest"] = Relationship(
-        back_populates="sender", sa_relationship_kwargs={"foreign_keys": "FriendRequest.sender_id"}
-    )
-    friend_requests_received: list["FriendRequest"] = Relationship(
-        back_populates="receiver", sa_relationship_kwargs={"foreign_keys": "FriendRequest.receiver_id"}
-    )
+    # friend_requests_sent: list["FriendRequest"] = Relationship(
+    #     sa_relationship_kwargs={"foreign_keys": "FriendRequest.sender_id"}
+    # )
+    # friend_requests_received: list["FriendRequest"] = Relationship(
+    #     sa_relationship_kwargs={"foreign_keys": "FriendRequest.receiver_id"}
+    # )
     # friends: list["Friend"] = Relationship(back_populates="user")
 
 class UserCreate(UserBase):

@@ -3,14 +3,14 @@ from sqlmodel import Session, select
 import hashlib
 
 from ..database import get_session
-from ..models.user import User, UserCreate, UserPublic
+from ..models.user import User, UserCreate
 from ..models.friend_request import FriendRequest, FriendRequestPublic
 
 router = APIRouter(
     prefix="/users"
 )
 
-@router.post("/", response_model=UserPublic)
+@router.post("/", response_model=User)
 def create_user(*, session: Session = Depends(get_session), user: UserCreate):
     db_user = User.model_validate(user)
     db_user.password = hashlib.sha256(db_user.password.encode()).hexdigest()
@@ -33,22 +33,34 @@ def read_user(*, session: Session = Depends(get_session), user_id: int):
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
-@router.get("/{user_id}/requests", response_model=list[FriendRequestPublic])
+@router.get("/{user_id}/requests")
 def read_friend_requests(*, session: Session = Depends(get_session), user_id: int):
+    # user = session.get(User, user_id)
+    # print(user.friend_requests_sent)
+
     # Query friend requests received by the user
-    statement = select(FriendRequest).where(FriendRequest.receiver_id == user_id)
-    friend_requests = session.exec(statement).all()
+    statement = select(FriendRequest, User).join(User)
+    friend_requests = session.exec(statement)
+
+    result = []
+    for request, user in friend_requests:
+        result.append({
+            "username": user.username,
+            "sent_at": request.sent_at
+        })
 
     # Populate data
-    result = []
-    for request in friend_requests:
-        result.append({
-            "request_id": request.request_id,
-            "sender": {
-                "user_id": request.sender.user_id,
-                "username": request.sender.username,
-            },
-            "status": request.status,
-            "sent_at": request.sent_at,
-        })
+    # result = []
+    # for request in friend_requests:
+        # result.append({
+        #     "request_id": request.request_id,
+        #     # "sender": {
+        #     #     "user_id": request.sender.user_id,
+        #     #     "username": request.sender.username,
+        #     # },
+        #     "status": request.status,
+        #     "sent_at": request.sent_at,
+        # })
+        # print(FriendRequest.model_validate(request))
+
     return result

@@ -12,7 +12,7 @@ class RequestStatus(str, Enum):
     REJECTED = "rejected"
 
 class FriendRequestBase(SQLModel):
-    sender_id: int = Field(foreign_key="user.user_id")
+    sender_id: int
     receiver_id: int = Field(foreign_key="user.user_id")
     status: RequestStatus = Field(default=RequestStatus.PENDING)
     sent_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -20,22 +20,22 @@ class FriendRequestBase(SQLModel):
 class FriendRequest(FriendRequestBase, table=True):
     request_id: int | None = Field(default=None, primary_key=True)
 
-    sender: "User" = Relationship(
-        back_populates="friend_requests_sent", sa_relationship_kwargs={"foreign_keys": "FriendRequest.sender_id"}
-    )
-    receiver: "User" = Relationship(
-        back_populates="friend_requests_received", sa_relationship_kwargs={"foreign_keys": "FriendRequest.receiver_id"}
-    )
+    # sender: "User" = Relationship(
+    #     back_populates="friend_requests_sent", sa_relationship_kwargs={"foreign_keys": "FriendRequest.sender_id"}
+    # )
+    # receiver: "User" = Relationship(
+    #     back_populates="friend_requests_received", sa_relationship_kwargs={"foreign_keys": "FriendRequest.receiver_id"}
+    # )
 
-class FriendRequestCreate(FriendRequestBase):
-    pass
+class FriendRequestCreate(SQLModel):
+    sender_id: int
+    receiver_id: int
 
 class FriendRequestPublic(SQLModel):
     request_id: int
-    sender: "UserPublic"
+    username: str = Field(foreign_key="user.username")
     status: RequestStatus
     sent_at: datetime
-
 
 class FriendRequestUpdate(FriendRequestBase):
     pass
