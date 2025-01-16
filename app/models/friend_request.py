@@ -4,7 +4,7 @@ from enum import Enum
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from ..models.user import User, UserPublic
+    from ..models.user import UserPublic
 
 class RequestStatus(str, Enum):
     PENDING = "pending"
@@ -32,10 +32,7 @@ class FriendRequestCreate(SQLModel):
     receiver_id: int
 
 class FriendRequestPublic(SQLModel):
-    request_id: int
-    username: str = Field(foreign_key="user.username")
     status: RequestStatus
-    sent_at: datetime
 
 class FriendRequestUpdate(FriendRequestBase):
     pass
