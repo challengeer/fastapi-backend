@@ -3,8 +3,9 @@ from sqlmodel import Session, select
 import hashlib
 
 from ..database import get_session
-from ..models.user import User, UserCreate
+from ..models.user import User, UserCreate, UserPublic
 from ..models.friend_request import FriendRequest, FriendRequestPublic
+from ..models.friend import Friend
 
 router = APIRouter(
     prefix="/users"
@@ -62,5 +63,21 @@ def read_friend_requests(*, session: Session = Depends(get_session), user_id: in
         #     "sent_at": request.sent_at,
         # })
         # print(FriendRequest.model_validate(request))
+
+    return result
+
+@router.get("/{user_id}/friends", response_model=list[UserPublic])
+def read_user_friends(*, session: Session = Depends(get_session), user_id: int):
+    # Get friends where user is either user1 or user2
+    statement = (
+        select(Friend, User)
+        .join(User, (Friend.user2_id == User.user_id) & (Friend.user1_id == user_id) |
+                   (Friend.user1_id == User.user_id) & (Friend.user2_id == user_id))
+    )
+    friends = session.exec(statement).all()
+
+    result = []
+    for friendship, friend in friends:
+        result.append(UserPublic.model_validate(friend))
 
     return result
