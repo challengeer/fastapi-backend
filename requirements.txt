@@ -4,3 +4,4 @@ sqlmodel
 pymysql
 python-dotenv
 passlib
+jwt
