@@ -29,6 +29,7 @@ class UserCreate(UserBase):
 
 class UserPublic(SQLModel):
     user_id: int
+    display_name: str
     username: str
 
 class UserUpdate(UserBase):
