@@ -1,4 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional
 from datetime import datetime, timezone
 from enum import Enum
 
@@ -18,7 +19,7 @@ class FriendRequestBase(SQLModel):
     sent_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class FriendRequest(FriendRequestBase, table=True):
-    request_id: int | None = Field(default=None, primary_key=True)
+    request_id: Optional[int] = Field(default=None, primary_key=True)
 
     # sender: "User" = Relationship(
     #     back_populates="friend_requests_sent", sa_relationship_kwargs={"foreign_keys": "FriendRequest.sender_id"}

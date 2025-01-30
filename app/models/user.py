@@ -1,4 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional
 from datetime import datetime, timezone
 
 from typing import TYPE_CHECKING
@@ -7,14 +8,14 @@ if TYPE_CHECKING:
 
 class UserBase(SQLModel):
     username: str = Field(index=True, unique=True)
-    display_name: str | None = None
+    display_name: str = Field(index=True, unique=False)
     email: str = Field(index=True, unique=True)
     phone_number: str = Field(index=True, unique=True)
     password: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class User(UserBase, table=True):
-    user_id: int | None = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, primary_key=True)
 
     # friend_requests_sent: list["FriendRequest"] = Relationship(
     #     sa_relationship_kwargs={"foreign_keys": "FriendRequest.sender_id"}
