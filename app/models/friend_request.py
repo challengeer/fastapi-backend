@@ -12,7 +12,7 @@ class RequestStatus(str, Enum):
     REJECTED = "rejected"
 
 class FriendRequestBase(SQLModel):
-    sender_id: int
+    sender_id: int = Field(foreign_key="user.user_id")
     receiver_id: int = Field(foreign_key="user.user_id")
     status: RequestStatus = Field(default=RequestStatus.PENDING)
     sent_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -32,6 +32,9 @@ class FriendRequestCreate(SQLModel):
     receiver_id: int
 
 class FriendRequestPublic(SQLModel):
+    user_id: int
+    username: str
+    display_name: str
     status: RequestStatus
 
 class FriendRequestUpdate(FriendRequestBase):
