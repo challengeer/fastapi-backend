@@ -12,6 +12,10 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     libmariadb-dev \
     gcc \
+    libffi-dev \
+    python3-dev \
+    libssl-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements and install dependencies
