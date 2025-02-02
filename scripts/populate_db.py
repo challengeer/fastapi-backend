@@ -100,15 +100,15 @@ def main():
     with Session(engine) as session:
         # Create users
         users = create_users(session)
-        print(f"Created {len(users)} users.")
+        print(f"Created {len(users)} users")
         
         # Create friend requests
         create_friend_requests(session, users)
-        print("Created friend requests.")
+        print("Created friend requests")
         
         # Create friendships
         create_friendships(session, users)
-        print("Created friendships.")
+        print("Created friendships")
 
 if __name__ == "__main__":
     main() 
