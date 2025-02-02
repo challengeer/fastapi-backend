@@ -21,13 +21,6 @@ class FriendRequestBase(SQLModel):
 class FriendRequest(FriendRequestBase, table=True):
     request_id: Optional[int] = Field(default=None, primary_key=True)
 
-    # sender: "User" = Relationship(
-    #     back_populates="friend_requests_sent", sa_relationship_kwargs={"foreign_keys": "FriendRequest.sender_id"}
-    # )
-    # receiver: "User" = Relationship(
-    #     back_populates="friend_requests_received", sa_relationship_kwargs={"foreign_keys": "FriendRequest.receiver_id"}
-    # )
-
 class FriendRequestCreate(SQLModel):
     sender_id: int
     receiver_id: int

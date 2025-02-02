@@ -34,13 +34,23 @@ def read_user(*, session: Session = Depends(get_session), user_id: int):
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
-@router.get("/{user_id}/requests", response_model=list[UserPublic])
+@router.get("/{user_id}/requests", response_model=list[FriendRequestPublic])
 def read_friend_requests(*, session: Session = Depends(get_session), user_id: int):
     statement = (
-        select(User)
-            .join(User, FriendRequest.receiver_id == user_id)
+        select(User, FriendRequest)
+            .join(FriendRequest, FriendRequest.sender_id == User.user_id)
+            .where(FriendRequest.receiver_id == user_id)
     )
-    friend_requests = session.exec(statement).all()
+    results = session.exec(statement).all()
+    
+    friend_requests = []
+    for user, request in results:
+        friend_requests.append(FriendRequestPublic(
+            user_id=user.user_id,
+            username=user.username,
+            display_name=user.display_name,
+            status=request.status
+        ))
 
     return friend_requests
 
