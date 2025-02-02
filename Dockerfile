@@ -2,20 +2,21 @@
 FROM python:3.9-slim
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1  # Prevents Python from writing .pyc files
-ENV PYTHONUNBUFFERED 1        # Ensures logs are output directly
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 # Create working directory
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    libmariadb-dev gcc \
+    libmariadb-dev \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements and install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy the entire application
 COPY . .
