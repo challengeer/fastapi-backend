@@ -16,7 +16,14 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     libssl-dev \
     pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && . $HOME/.cargo/env
+
+# Add Cargo to PATH
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy the requirements and install dependencies
 COPY requirements.txt .
