@@ -1,5 +1,5 @@
 # Use the official Python image
-FROM arm64v8/python:3.9-slim
+FROM arm64v8/python:3.11
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
