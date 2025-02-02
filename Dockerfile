@@ -1,5 +1,5 @@
 # Use the official Python image
-FROM python:3.11-slim
+FROM arm64v8/python:3.9-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -12,16 +12,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     libmariadb-dev \
     gcc \
-    libffi-dev \
-    python3-dev \
-    libssl-dev \
-    pkg-config \
-    curl \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && . $HOME/.cargo/env
-
+    && rm -rf /var/lib/apt/lists/*
 # Add Cargo to PATH
 ENV PATH="/root/.cargo/bin:${PATH}"
 
