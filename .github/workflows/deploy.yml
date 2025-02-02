@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  deploy:
+  docker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -25,7 +25,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/arm64,linux/arm/v7  # Build for ARM architectures
