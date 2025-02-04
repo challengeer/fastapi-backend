@@ -6,3 +6,4 @@ python-dotenv
 passlib
 jwt
 boto3
+pillow

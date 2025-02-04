@@ -12,6 +12,7 @@ class UserBase(SQLModel):
     email: str = Field(index=True, unique=True)
     phone_number: str = Field(index=True, unique=True)
     password: str
+    profile_picture: str = Field(nullable=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class User(UserBase, table=True):
@@ -32,6 +33,7 @@ class UserPublic(SQLModel):
     user_id: int
     display_name: str
     username: str
+    profile_picture: str
 
 class UserUpdate(UserBase):
     pass
