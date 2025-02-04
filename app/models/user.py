@@ -33,7 +33,7 @@ class UserPublic(SQLModel):
     user_id: int
     display_name: str
     username: str
-    profile_picture: str
+    profile_picture: Optional[str]
 
 class UserUpdate(UserBase):
     pass
