@@ -26,6 +26,14 @@ def read_users(*, session: Session = Depends(get_session), skip: int = 0, limit:
     users = session.exec(select(User).offset(skip).limit(limit)).all()
     return users
 
+@router.get("/search", response_model=list[UserPublic])
+def read_users(*, session: Session = Depends(get_session), q: str = "", skip: int = 0, limit: int = 20):
+    users = session.exec(
+        select(User).where(
+            (User.display_name.like(f"%{q}%")) | (User.username.like(f"%{q}%"))
+        ).offset(skip).limit(limit)
+    ).all()
+    return users
 
 @router.get("/{user_id}", response_model=UserPublic)
 def read_user(*, session: Session = Depends(get_session), user_id: int):
