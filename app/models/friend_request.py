@@ -29,6 +29,7 @@ class FriendRequestPublic(SQLModel):
     user_id: int
     username: str
     display_name: str
+    profile_picture: Optional[str]
     status: RequestStatus
 
 class FriendRequestUpdate(FriendRequestBase):
