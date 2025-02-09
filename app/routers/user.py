@@ -6,7 +6,6 @@ from ..database import get_session
 from ..models.user import User, UserCreate, UserPublic
 from ..models.friend_request import FriendRequest, FriendRequestPublic
 from ..models.friend import Friend
-from ..s3 import get_presigned_url
 
 router = APIRouter(
     prefix="/users"
@@ -24,8 +23,6 @@ def create_user(*, session: Session = Depends(get_session), user: UserCreate):
 @router.get("/", response_model=list[UserPublic])
 def read_users(*, session: Session = Depends(get_session), skip: int = 0, limit: int = 100):
     users = session.exec(select(User).offset(skip).limit(limit)).all()
-    for user in users:
-        user.profile_picture = get_presigned_url(user.profile_picture)
     return users
 
 @router.get("/search", response_model=list[UserPublic])
@@ -35,8 +32,6 @@ def read_users(*, session: Session = Depends(get_session), q: str = "", skip: in
             (User.display_name.like(f"%{q}%")) | (User.username.like(f"%{q}%"))
         ).offset(skip).limit(limit)
     ).all()
-    for user in users:
-        user.profile_picture = get_presigned_url(user.profile_picture)
     return users
 
 @router.get("/{user_id}", response_model=UserPublic)
@@ -44,7 +39,6 @@ def read_user(*, session: Session = Depends(get_session), user_id: int):
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    user.profile_picture = get_presigned_url(user.profile_picture)
     return user
 
 @router.get("/{user_id}/requests", response_model=list[FriendRequestPublic])
@@ -62,7 +56,6 @@ def read_friend_requests(*, session: Session = Depends(get_session), user_id: in
             user_id=user.user_id,
             username=user.username,
             display_name=user.display_name,
-            profile_picture=get_presigned_url(user.profile_picture),
             status=request.status
         ))
 
@@ -76,7 +69,4 @@ def read_user_friends(*, session: Session = Depends(get_session), user_id: int):
                    (Friend.user1_id == User.user_id) & (Friend.user2_id == user_id))
     )
     friends = session.exec(statement).all()
-    
-    for friend in friends:
-        friend.profile_picture = get_presigned_url(friend.profile_picture)
     return friends

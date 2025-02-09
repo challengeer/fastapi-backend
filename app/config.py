@@ -21,6 +21,7 @@ S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
 S3_REGION = os.getenv("S3_REGION")
+S3_URL = f"https://{S3_BUCKET_NAME}.s3.{S3_REGION}.amazonaws.com"
 
 # Build the database URL
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
