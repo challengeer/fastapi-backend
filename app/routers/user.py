@@ -56,6 +56,7 @@ def read_friend_requests(*, session: Session = Depends(get_session), user_id: in
             user_id=user.user_id,
             username=user.username,
             display_name=user.display_name,
+            profile_picture=user.profile_picture,
             status=request.status
         ))
 
