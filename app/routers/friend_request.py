@@ -11,7 +11,8 @@ from ..models.friend_request import (
 from ..models.friend import Friend
 
 router = APIRouter(
-    prefix="/friend-request"
+    prefix="/friend-request",
+    tags=["Friend Request"]
 )
 
 @router.post("/")

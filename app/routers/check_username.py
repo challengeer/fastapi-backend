@@ -6,7 +6,8 @@ from ..database import get_session
 from ..models.user import User
 
 router = APIRouter(
-    prefix="/check-username"
+    prefix="/check-username",
+    tags=["User"]
 )
 
 class UsernameCheckResponse(BaseModel):

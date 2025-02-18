@@ -8,7 +8,8 @@ from ..models.verification_code import VerificationCode, VerificationCodeCreate,
 from ..models.user import User
 
 router = APIRouter(
-    prefix="/verification-code"
+    prefix="/verification-code",
+    tags=["Verification Code"]
 )
 
 @router.post("/")

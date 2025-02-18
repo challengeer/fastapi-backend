@@ -8,7 +8,8 @@ from ..models.friend_request import FriendRequest, FriendRequestPublic
 from ..models.friend import Friend
 
 router = APIRouter(
-    prefix="/users"
+    prefix="/users",
+    tags=["User"]
 )
 
 @router.post("/", response_model=User)
