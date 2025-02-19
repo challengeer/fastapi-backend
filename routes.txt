@@ -1,0 +1,16 @@
+POST /auth/google
+POST /auth/login
+POST /auth/register
+POST /auth/refresh
+POST /auth/verify-phone
+POST /auth/verify-phone/confirm
+GET /auth/check-username?username={username}
+
+GET /user/search?q={query}
+GET /user/{user_id}
+
+GET /friends/list
+GET /friends/pending
+POST /friends/add
+POST /friends/accept
+POST /friends/reject
