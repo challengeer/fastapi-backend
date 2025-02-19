@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import create_db_and_tables
-from .routers import user, verification_code, friend_request, check_username
+from .routers import user, verification_code, friend_request, check_username, auth
 
 app = FastAPI()
 
@@ -15,6 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(user.router)
 app.include_router(verification_code.router)
 app.include_router(friend_request.router)
