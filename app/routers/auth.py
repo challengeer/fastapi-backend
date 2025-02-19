@@ -18,6 +18,16 @@ router = APIRouter(
     tags=["Authentication"]
 )
 
+class GoogleAuthRequest(BaseModel):
+    token: str
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+class UsernameCheckResponse(BaseModel):
+    username: str
+    exists: bool
+
 def create_tokens(user_id: int):
     access_token = create_token(
         data={"sub": str(user_id), "type": "access"},
@@ -30,17 +40,17 @@ def create_tokens(user_id: int):
     return {"access_token": access_token, "refresh_token": refresh_token}
 
 @router.post("/google")
-async def google_auth(token: str, db: Session = Depends(get_session)):
+async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_session)):
     try:
         idinfo = id_token.verify_oauth2_token(
-            token, requests.Request(), GOOGLE_CLIENT_ID,
+            request.token, requests.Request(), GOOGLE_CLIENT_ID,
             clock_skew_in_seconds=10
         )
 
         user = db.exec(
             select(User).where(
                 (User.google_id == idinfo["sub"]) |
-                (User.google_email == idinfo["email"]) |
+                (User.email == idinfo["email"]) |
                 (User.phone_number == idinfo.get("phoneNumber"))
             )
         ).first()
@@ -80,9 +90,9 @@ async def google_auth(token: str, db: Session = Depends(get_session)):
         )
 
 @router.post("/refresh")
-async def refresh_token(refresh_token: str, db: Session = Depends(get_session)):
+async def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_session)):
     try:
-        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload["type"] != "refresh":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -164,10 +174,6 @@ def verify_code(request: VerificationCodeVerify, session: Session = Depends(get_
     session.commit()
 
     return {"message": "Verification successful"}
-
-class UsernameCheckResponse(BaseModel):
-    username: str
-    exists: bool
 
 @router.get("/check-username", response_model=UsernameCheckResponse)
 def check_username_exists(username: str, session: Session = Depends(get_session)):
