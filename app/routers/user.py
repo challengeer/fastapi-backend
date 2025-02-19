@@ -10,13 +10,6 @@ router = APIRouter(
     tags=["User"]
 )
 
-@router.get("/{user_id}", response_model=UserPublic)
-def read_user(user_id: int, session: Session = Depends(get_session), _: int = Depends(get_current_user_id)):
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
 @router.get("/search", response_model=list[UserPublic])
 def search_users(
     q: str = "",
@@ -31,3 +24,10 @@ def search_users(
         ).offset(skip).limit(limit)
     ).all()
     return users
+    
+@router.get("/{user_id}", response_model=UserPublic)
+def read_user(user_id: int, session: Session = Depends(get_session), _: int = Depends(get_current_user_id)):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
