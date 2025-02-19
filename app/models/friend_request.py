@@ -1,11 +1,7 @@
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime, timezone
 from enum import Enum
-
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from ..models.user import UserPublic
 
 class RequestStatus(str, Enum):
     PENDING = "pending"
@@ -21,16 +17,9 @@ class FriendRequestBase(SQLModel):
 class FriendRequest(FriendRequestBase, table=True):
     request_id: Optional[int] = Field(default=None, primary_key=True)
 
-class FriendRequestCreate(SQLModel):
-    sender_id: int
-    receiver_id: int
-
 class FriendRequestPublic(SQLModel):
     user_id: int
     username: str
     display_name: str
     profile_picture: Optional[str]
     status: RequestStatus
-
-class FriendRequestUpdate(FriendRequestBase):
-    pass

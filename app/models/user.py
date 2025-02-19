@@ -15,9 +15,6 @@ class UserBase(SQLModel):
 class User(UserBase, table=True):
     user_id: Optional[int] = Field(default=None, primary_key=True)
 
-class UserCreate(UserBase):
-    pass
-
 class UserPublic(SQLModel):
     user_id: int
     display_name: str

@@ -1,14 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
-from datetime import timedelta
+from pydantic import BaseModel
+from datetime import datetime, timezone,timedelta
 from jose import jwt
 from google.oauth2 import id_token
 from google.auth.transport import requests
+from ..config import GOOGLE_CLIENT_ID, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+import secrets
 
 from ..auth import create_token
 from ..database import get_session
 from ..models.user import User, UserPublic
-from ..config import GOOGLE_CLIENT_ID, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+from ..models.verification_code import VerificationCode, VerificationCodeCreate, VerificationCodeVerify
 
 router = APIRouter(
     prefix="/auth",
@@ -108,3 +111,69 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_session)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token"
         )
+
+@router.post("/verify-phone")
+def create_verification_code(request: VerificationCodeCreate, session: Session = Depends(get_session)):
+    user = session.exec(select(User).where(User.phone_number == request.phone_number)).first()
+    if user:
+        raise HTTPException(status_code=400, detail="Phone number already registered")
+    
+    verification_code = str(secrets.randbelow(900000) + 100000)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+    # Check if the phone number already exists
+    existing_record = session.get(VerificationCode, request.phone_number)
+    if existing_record:
+        # Update the record if it exists
+        existing_record.verification_code = verification_code
+        existing_record.expires_at = expires_at
+        existing_record.created_at = datetime.now(timezone.utc)
+        existing_record.verified = False
+        session.add(existing_record)
+    else:
+        # Create a new record
+        new_code = VerificationCode(
+            phone_number=request.phone_number,
+            verification_code=verification_code,
+            expires_at=expires_at,
+        )
+        session.add(new_code)
+
+    session.commit()
+    return {"message": "Verification code created", "phone_number": request.phone_number}
+
+@router.post("/verify-phone/confirm")
+def verify_code(request: VerificationCodeVerify, session: Session = Depends(get_session)):
+    verification_code = session.get(VerificationCode, request.phone_number)
+
+    if not verification_code:
+        raise HTTPException(status_code=404, detail="Phone number not found")
+
+    if verification_code.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Verification code expired")
+
+    if verification_code.verified:
+        raise HTTPException(status_code=400, detail="Verification code already used")
+
+    if verification_code.verification_code != request.verification_code:
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    # Mark as verified
+    verification_code.verified = True
+    session.add(verification_code)
+    session.commit()
+
+    return {"message": "Verification successful"}
+
+class UsernameCheckResponse(BaseModel):
+    username: str
+    exists: bool
+
+@router.get("/check-username", response_model=UsernameCheckResponse)
+def check_username_exists(username: str, session: Session = Depends(get_session)):
+    statement = select(User).where(User.username == username)
+    existing_user = session.exec(statement).first()
+    return UsernameCheckResponse(
+        username=username,
+        exists=existing_user is not None
+    )

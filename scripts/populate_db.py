@@ -10,7 +10,7 @@ import random
 import hashlib
 from app.models.user import User
 from app.models.friend_request import FriendRequest, RequestStatus
-from app.models.friend import Friend
+from app.models.friendship import Friendship
 
 from app.config import DATABASE_URL, S3_URL
 from app.database import create_db_and_tables
@@ -86,7 +86,7 @@ def create_friendships(session: Session, users: list[User]):
         # Random friendship creation date within the last 60 days
         since = datetime.now(timezone.utc) - timedelta(days=random.randint(0, 60))
         
-        friendship = Friend(
+        friendship = Friendship(
             user1_id=user1.user_id,
             user2_id=user2.user_id,
             since=since

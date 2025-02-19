@@ -10,7 +10,7 @@ GET /user/search?q={query}
 GET /user/{user_id}
 
 GET /friends/list
-GET /friends/pending
+GET /friends/requests
 POST /friends/add
-POST /friends/accept
-POST /friends/reject
+PUT /friends/accept
+PUT /friends/reject
