@@ -62,7 +62,7 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
                 display_name=idinfo.get("name", ""),
                 profile_picture=idinfo.get("picture"),
                 email=idinfo["email"],
-                phone_number=idinfo.get("phoneNumber", ""),  # This might be None from Google
+                phone_number=idinfo.get("phoneNumber"),
                 google_id=idinfo["sub"],
             )
             db.add(user)
