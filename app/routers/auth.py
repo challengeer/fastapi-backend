@@ -58,7 +58,7 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
         if not user:
             # Create new user
             user = User(
-                username=f"google_{idinfo['sub']}",
+                username=idinfo['sub'],
                 display_name=idinfo.get("name", ""),
                 profile_picture=idinfo.get("picture"),
                 email=idinfo["email"],
