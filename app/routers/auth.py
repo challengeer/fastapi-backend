@@ -39,6 +39,22 @@ def create_tokens(user_id: int):
     )
     return {"access_token": access_token, "refresh_token": refresh_token}
 
+def generate_username(first_name: str, last_name: str) -> str:
+    # Convert names to lowercase
+    first_name = first_name.lower()
+    last_name = last_name.lower() if last_name else ""
+    random_numbers = ''.join([str(secrets.randbelow(10)) for _ in range(4)])
+    
+    if last_name:
+        # username format: f_lastname1234
+        # If last name is longer than 9 characters, truncate it because the username is max 15 characters long
+        username = f"{first_name[0]}_{last_name[:9]}{random_numbers}"
+    else:
+        # username format: firstname1234
+        username = f"{first_name[:11]}{random_numbers}"
+    
+    return username
+
 @router.post("/google")
 async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_session)):
     try:
@@ -56,24 +72,33 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
         ).first()
 
         if not user:
+            # Get first and last name from Google token
+            first_name = idinfo.get("given_name", "user")
+            last_name = idinfo.get("family_name", "")
+            username = generate_username(first_name, last_name)
+            
+            # Ensure username is unique
+            while db.exec(select(User).where(User.username == username)).first():
+                username = generate_username(first_name, last_name)
+            
             # Create new user
             user = User(
-                username=idinfo['sub'],
-                display_name=idinfo.get("name", ""),
+                username=username,
+                display_name=idinfo.get("name", username),
                 profile_picture=idinfo.get("picture"),
                 email=idinfo["email"],
-                phone_number=idinfo.get("phoneNumber"),
+                phone_number=idinfo["phoneNumber"],
                 google_id=idinfo["sub"],
             )
             db.add(user)
             db.commit()
             db.refresh(user)
         else:
-            # Update existing user's Google info if needed
+            # Update existing user's Google info
             if not user.google_id:
                 user.google_id = idinfo["sub"]
                 user.email = idinfo["email"]
-                user.phone_number = idinfo.get("phoneNumber", "")
+                user.phone_number = idinfo["phoneNumber"]
                 db.commit()
                 db.refresh(user)
 
