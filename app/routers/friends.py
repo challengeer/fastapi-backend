@@ -123,7 +123,7 @@ def get_friend_requests(session: Session = Depends(get_session), user_id: int = 
     statement = (
         select(User, FriendRequest)
             .join(FriendRequest, FriendRequest.sender_id == User.user_id)
-            .where(FriendRequest.receiver_id == user_id & FriendRequest.status == RequestStatus.PENDING)
+            .where((FriendRequest.receiver_id == user_id) & (FriendRequest.status == RequestStatus.PENDING))
     )
     results = session.exec(statement).all()
 
