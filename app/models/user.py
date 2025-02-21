@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime, timezone
 
 class UserBase(SQLModel):
-    username: str = Field(index=True, unique=True, max_length=30)
+    username: str = Field(index=True, unique=True, max_length=15)
     display_name: str = Field(index=True, unique=False, max_length=30)
     profile_picture: Optional[str] = Field(nullable=True, max_length=255)
     email: Optional[str] = Field(nullable=True, index=True, unique=True, max_length=100)
