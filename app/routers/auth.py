@@ -66,8 +66,7 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
         user = db.exec(
             select(User).where(
                 (User.google_id == idinfo["sub"]) &
-                (User.email == idinfo["email"]) &
-                (User.phone_number == idinfo["phoneNumber"])
+                (User.email == idinfo["email"])
             )
         ).first()
 
@@ -87,7 +86,6 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
                 display_name=idinfo.get("name", username),
                 profile_picture=idinfo.get("picture"),
                 email=idinfo["email"],
-                phone_number=idinfo["phoneNumber"],
                 google_id=idinfo["sub"],
             )
             db.add(user)
@@ -98,7 +96,6 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             if not user.google_id:
                 user.google_id = idinfo["sub"]
                 user.email = idinfo["email"]
-                user.phone_number = idinfo["phoneNumber"]
                 db.commit()
                 db.refresh(user)
 
