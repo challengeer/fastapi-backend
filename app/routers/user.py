@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..database import get_session
-from ..models.user import User, UserPublic
+from ..models.user import User, UserPublic, UserPrivate
 from ..auth import get_current_user_id
 
 router = APIRouter(
@@ -24,6 +24,16 @@ def search_users(
         ).offset(skip).limit(limit)
     ).all()
     return users
+
+@router.get("/me", response_model=UserPrivate)
+def read_current_user(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    user = session.exec(select(User).where(User.user_id == current_user_id)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
     
 @router.get("/{user_id}", response_model=UserPublic)
 def read_user(user_id: int, session: Session = Depends(get_session), _: int = Depends(get_current_user_id)):

@@ -6,6 +6,7 @@ POST /auth/verify-phone
 POST /auth/verify-phone/confirm
 GET /auth/check-username?username={username}
 
+GET /user/me
 GET /user/search?q={query}
 GET /user/{user_id}
 
