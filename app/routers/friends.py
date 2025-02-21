@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
+from pydantic import BaseModel
 
 from ..database import get_session
 from ..models.user import User, UserPublic
@@ -12,21 +13,31 @@ router = APIRouter(
     tags=["Friends"]
 )
 
+class FriendRequestCreate(BaseModel):
+    receiver_id: int
+
+class FriendRequestAction(BaseModel):
+    request_id: int
+
 @router.post("/add")
-def create_friend_request(receiver_id: int, session: Session = Depends(get_session), user_id: int = Depends(get_current_user_id)):
+def create_friend_request(
+    request: FriendRequestCreate,
+    session: Session = Depends(get_session),
+    user_id: int = Depends(get_current_user_id)
+):
     # Check if not self
-    if user_id == receiver_id:
+    if user_id == request.receiver_id:
         raise HTTPException(status_code=400, detail="Cannot send friend request to yourself")
     
     # Check if user exists
-    receiver = session.get(User, receiver_id)
+    receiver = session.get(User, request.receiver_id)
     if not receiver:
         raise HTTPException(status_code=404, detail="Receiver not found")
 
     # Check if a pending or accepted friend request already exists
     statement = select(FriendRequest).where(
         (FriendRequest.sender_id == user_id) & 
-        (FriendRequest.receiver_id == receiver_id) &
+        (FriendRequest.receiver_id == request.receiver_id) &
         (FriendRequest.status != RequestStatus.REJECTED)  # Allow if previous request was rejected
     )
     existing_request = session.exec(statement).first()
@@ -36,7 +47,7 @@ def create_friend_request(receiver_id: int, session: Session = Depends(get_sessi
     # Create new friend request
     friend_request = FriendRequest(
         sender_id=user_id,
-        receiver_id=receiver_id,
+        receiver_id=request.receiver_id,
         status=RequestStatus.PENDING
     )
     session.add(friend_request)
@@ -45,8 +56,12 @@ def create_friend_request(receiver_id: int, session: Session = Depends(get_sessi
     return friend_request
 
 @router.put("/accept")
-def accept_friend_request(request_id: int, session: Session = Depends(get_session), user_id: int = Depends(get_current_user_id)):
-    friend_request = session.get(FriendRequest, request_id)
+def accept_friend_request(
+    request: FriendRequestAction,
+    session: Session = Depends(get_session),
+    user_id: int = Depends(get_current_user_id)
+):
+    friend_request = session.get(FriendRequest, request.request_id)
     if not friend_request:
         raise HTTPException(status_code=404, detail="Friend request not found")
     
@@ -71,8 +86,12 @@ def accept_friend_request(request_id: int, session: Session = Depends(get_sessio
     return friend_request
 
 @router.put("/reject")
-def reject_friend_request(request_id: int, session: Session = Depends(get_session), user_id: int = Depends(get_current_user_id)):
-    friend_request = session.get(FriendRequest, request_id)
+def reject_friend_request(
+    request: FriendRequestAction,
+    session: Session = Depends(get_session),
+    user_id: int = Depends(get_current_user_id)
+):
+    friend_request = session.get(FriendRequest, request.request_id)
     if not friend_request:
         raise HTTPException(status_code=404, detail="Friend request not found")
     
@@ -111,6 +130,7 @@ def get_friend_requests(session: Session = Depends(get_session), user_id: int = 
     friend_requests = []
     for user, request in results:
         friend_requests.append(FriendRequestPublic(
+            request_id=request.request_id,
             user_id=user.user_id,
             username=user.username,
             display_name=user.display_name,

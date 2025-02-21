@@ -18,6 +18,7 @@ class FriendRequest(FriendRequestBase, table=True):
     request_id: Optional[int] = Field(default=None, primary_key=True)
 
 class FriendRequestPublic(SQLModel):
+    request_id: int
     user_id: int
     username: str
     display_name: str
