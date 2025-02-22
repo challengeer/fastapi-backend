@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
+from typing import Optional
 
 from ..database import get_session
-from ..models.user import User, UserPublic, UserPrivate, RequestStatus, Friendship, FriendRequest
+from ..models.user import User, UserPublic
+from ..models.friendship import Friendship
+from ..models.friend_request import FriendRequest, RequestStatus
 from ..auth import get_current_user_id
 
 router = APIRouter(
@@ -62,7 +65,11 @@ def search_users(
     
     return users
 
-@router.get("/me", response_model=UserPrivate)
+class UserLocal(UserPublic):
+    email: Optional[str]
+    phone_number: Optional[str]
+
+@router.get("/me", response_model=UserLocal)
 def read_current_user(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)

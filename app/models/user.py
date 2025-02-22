@@ -21,9 +21,5 @@ class UserPublic(SQLModel):
     username: str
     profile_picture: Optional[str]
 
-class UserPrivate(UserPublic):
-    email: Optional[str]
-    phone_number: Optional[str]
-
 class UserUpdate(UserBase):
     pass
