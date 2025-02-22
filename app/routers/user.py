@@ -33,8 +33,7 @@ def search_users(
         )
         .outerjoin(
             FriendRequest,
-            ((FriendRequest.sender_id == User.user_id) & (FriendRequest.receiver_id == current_user_id)) |
-            ((FriendRequest.receiver_id == User.user_id) & (FriendRequest.sender_id == current_user_id))
+            (FriendRequest.receiver_id == User.user_id) & (FriendRequest.sender_id == current_user_id)
         )
         .where(
             (User.display_name.like(f"%{q}%")) | (User.username.like(f"%{q}%"))
