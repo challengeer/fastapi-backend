@@ -34,17 +34,24 @@ def create_friend_request(
     if not receiver:
         raise HTTPException(status_code=404, detail="Receiver not found")
 
-    # Check if a pending or accepted friend request already exists
+    # Check if any friend request exists (including rejected ones)
     statement = select(FriendRequest).where(
         (FriendRequest.sender_id == user_id) & 
-        (FriendRequest.receiver_id == request.receiver_id) &
-        (FriendRequest.status != RequestStatus.REJECTED)  # Allow if previous request was rejected
+        (FriendRequest.receiver_id == request.receiver_id)
     )
     existing_request = session.exec(statement).first()
+    
     if existing_request:
-        raise HTTPException(status_code=400, detail="Active friend request already exists")
+        if existing_request.status != RequestStatus.REJECTED:
+            raise HTTPException(status_code=400, detail="Active friend request already exists")
+        # Update the rejected request to pending instead of creating new one
+        existing_request.status = RequestStatus.PENDING
+        session.add(existing_request)
+        session.commit()
+        session.refresh(existing_request)
+        return existing_request
 
-    # Create new friend request
+    # Create new friend request if none exists
     friend_request = FriendRequest(
         sender_id=user_id,
         receiver_id=request.receiver_id,
