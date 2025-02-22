@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..database import get_session
-from ..models.user import User, UserPublic, UserPrivate
+from ..models.user import User, UserPublic, UserPrivate, RequestStatus, Friendship, FriendRequest
 from ..auth import get_current_user_id
 
 router = APIRouter(
@@ -10,19 +10,56 @@ router = APIRouter(
     tags=["User"]
 )
 
-@router.get("/search", response_model=list[UserPublic])
+class SearchUser(UserPublic):
+    friendship_status: str
+
+@router.get("/search", response_model=list[SearchUser])
 def search_users(
     q: str = "",
     skip: int = 0,
     limit: int = 20,
     session: Session = Depends(get_session),
-    _: int = Depends(get_current_user_id)
+    current_user_id: int = Depends(get_current_user_id)
 ):
-    users = session.exec(
-        select(User).where(
+    statement = (
+        select(User, Friendship, FriendRequest)
+        .outerjoin(
+            Friendship,
+            ((Friendship.user1_id == User.user_id) & (Friendship.user2_id == current_user_id)) |
+            ((Friendship.user2_id == User.user_id) & (Friendship.user1_id == current_user_id))
+        )
+        .outerjoin(
+            FriendRequest,
+            ((FriendRequest.sender_id == User.user_id) & (FriendRequest.receiver_id == current_user_id)) |
+            ((FriendRequest.receiver_id == User.user_id) & (FriendRequest.sender_id == current_user_id))
+        )
+        .where(
             (User.display_name.like(f"%{q}%")) | (User.username.like(f"%{q}%"))
-        ).offset(skip).limit(limit)
-    ).all()
+        )
+        .offset(skip)
+        .limit(limit)
+    )
+    
+    results = session.exec(statement).all()
+    
+    users = []
+    for user, friendship, request in results:
+        if user.user_id == current_user_id:
+            continue  # Skip the current user
+            
+        user_dict = user.model_dump()
+        if friendship:
+            user_dict["friendship_status"] = "friends"
+        elif request:
+            if request.status == RequestStatus.PENDING:
+                user_dict["friendship_status"] = "pending" if request.sender_id == current_user_id else "pending"
+            elif request.status == RequestStatus.REJECTED:
+                user_dict["friendship_status"] = "none"  # Treat rejected same as no relationship
+        else:
+            user_dict["friendship_status"] = "none"
+            
+        users.append(user_dict)
+    
     return users
 
 @router.get("/me", response_model=UserPrivate)
