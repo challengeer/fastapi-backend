@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from ..database import get_session
 from ..models.user import User, UserPublic
-from ..models.friend_request import FriendRequest, FriendRequestPublic, RequestStatus
+from ..models.friend_request import FriendRequest, RequestStatus
 from ..models.friendship import Friendship
 from ..auth import get_current_user_id
 
