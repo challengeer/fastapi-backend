@@ -34,18 +34,37 @@ def create_friend_request(
     if not receiver:
         raise HTTPException(status_code=404, detail="Receiver not found")
 
-    # Check if any friend request exists (including rejected ones)
+    # Check if any friend request exists in either direction
     statement = select(FriendRequest).where(
-        (FriendRequest.sender_id == user_id) & 
-        (FriendRequest.receiver_id == request.receiver_id)
+        ((FriendRequest.sender_id == user_id) & (FriendRequest.receiver_id == request.receiver_id)) |
+        ((FriendRequest.sender_id == request.receiver_id) & (FriendRequest.receiver_id == user_id))
     )
     existing_request = session.exec(statement).first()
     
     if existing_request:
-        if existing_request.status != RequestStatus.REJECTED:
+        # If there's a pending request from the other user, accept it automatically
+        if (existing_request.status == RequestStatus.PENDING and 
+            existing_request.receiver_id == user_id):
+            existing_request.status = RequestStatus.ACCEPTED
+            
+            # Create friendship record
+            new_friendship = Friendship(
+                user1_id=existing_request.sender_id,
+                user2_id=existing_request.receiver_id
+            )
+            session.add(new_friendship)
+            session.add(existing_request)
+            session.commit()
+            session.refresh(existing_request)
+            return existing_request
+            
+        elif existing_request.status != RequestStatus.REJECTED:
             raise HTTPException(status_code=400, detail="Active friend request already exists")
-        # Update the rejected request to pending instead of creating new one
+            
+        # Update the rejected request to pending
         existing_request.status = RequestStatus.PENDING
+        existing_request.sender_id = user_id
+        existing_request.receiver_id = request.receiver_id
         session.add(existing_request)
         session.commit()
         session.refresh(existing_request)
