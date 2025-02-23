@@ -9,18 +9,17 @@ class RequestStatus(str, Enum):
     REJECTED = "rejected"
 
 class FriendRequestBase(SQLModel):
-    sender_id: int = Field(foreign_key="user.user_id")
-    receiver_id: int = Field(foreign_key="user.user_id")
+    sender_id: int = Field(foreign_key="user.user_id", index=True)
+    receiver_id: int = Field(foreign_key="user.user_id", index=True)
     status: RequestStatus = Field(default=RequestStatus.PENDING)
     sent_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class FriendRequest(FriendRequestBase, table=True):
     request_id: Optional[int] = Field(default=None, primary_key=True)
 
-class FriendRequestPublic(SQLModel):
-    request_id: int
-    user_id: int
-    username: str
-    display_name: str
-    profile_picture: Optional[str]
-    status: RequestStatus
+    # Ensure unique friend requests regardless of order
+    class Config:
+        table_name = "friend_requests"
+        sa_column_kwargs = {
+            "sender_id,receiver_id": {"unique": True}
+        }

@@ -144,6 +144,10 @@ def get_friends(session: Session = Depends(get_session), user_id: int = Depends(
     friends = session.exec(statement).all()
     return friends
 
+class FriendRequestPublic(UserPublic):
+    request_id: int
+    status: RequestStatus
+
 @router.get("/requests", response_model=list[FriendRequestPublic])
 def get_friend_requests(session: Session = Depends(get_session), user_id: int = Depends(get_current_user_id)):
     statement = (
