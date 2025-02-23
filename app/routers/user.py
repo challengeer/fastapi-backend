@@ -78,9 +78,41 @@ def read_current_user(
         raise HTTPException(status_code=404, detail="User not found")
     return user
     
-@router.get("/{user_id}", response_model=UserPublic)
-def read_user(user_id: int, session: Session = Depends(get_session), _: int = Depends(get_current_user_id)):
-    user = session.get(User, user_id)
-    if not user:
+@router.get("/{user_id}", response_model=SearchUser)
+def read_user(
+    user_id: int, 
+    session: Session = Depends(get_session), 
+    current_user_id: int = Depends(get_current_user_id)
+):
+    statement = (
+        select(User, Friendship, FriendRequest)
+        .outerjoin(
+            Friendship,
+            ((Friendship.user1_id == User.user_id) & (Friendship.user2_id == current_user_id)) |
+            ((Friendship.user2_id == User.user_id) & (Friendship.user1_id == current_user_id))
+        )
+        .outerjoin(
+            FriendRequest,
+            (FriendRequest.receiver_id == User.user_id) & (FriendRequest.sender_id == current_user_id)
+        )
+        .where(User.user_id == user_id)
+    )
+    
+    result = session.exec(statement).first()
+    if not result:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+        
+    user, friendship, request = result
+    user_dict = user.model_dump()
+    
+    if friendship:
+        user_dict["friendship_status"] = "friends"
+    elif request:
+        if request.status == RequestStatus.PENDING:
+            user_dict["friendship_status"] = "pending" if request.sender_id == current_user_id else "pending"
+        elif request.status == RequestStatus.REJECTED:
+            user_dict["friendship_status"] = "none"  # Treat rejected same as no relationship
+    else:
+        user_dict["friendship_status"] = "none"
+    
+    return user_dict
