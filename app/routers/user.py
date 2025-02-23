@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from typing import Optional
+from enum import Enum
 
 from ..database import get_session
 from ..models.user import User, UserPublic
@@ -13,8 +14,14 @@ router = APIRouter(
     tags=["User"]
 )
 
+class FriendshipStatus(str, Enum):
+    FRIENDS = "friends"
+    REQUEST_SENT = "request_sent"
+    REQUEST_RECEIVED = "request_received"
+    NONE = "none"
+
 class SearchUser(UserPublic):
-    friendship_status: str
+    friendship_status: FriendshipStatus
 
 @router.get("/search", response_model=list[SearchUser])
 def search_users(
@@ -51,14 +58,17 @@ def search_users(
             
         user_dict = user.model_dump()
         if friendship:
-            user_dict["friendship_status"] = "friends"
+            user_dict["friendship_status"] = FriendshipStatus.FRIENDS
         elif request:
             if request.status == RequestStatus.PENDING:
-                user_dict["friendship_status"] = "pending" if request.sender_id == current_user_id else "pending"
+                user_dict["friendship_status"] = (
+                    FriendshipStatus.REQUEST_SENT if request.sender_id == current_user_id 
+                    else FriendshipStatus.REQUEST_RECEIVED
+                )
             elif request.status == RequestStatus.REJECTED:
-                user_dict["friendship_status"] = "none"  # Treat rejected same as no relationship
+                user_dict["friendship_status"] = FriendshipStatus.NONE  # Treat rejected same as no relationship
         else:
-            user_dict["friendship_status"] = "none"
+            user_dict["friendship_status"] = FriendshipStatus.NONE
             
         users.append(user_dict)
     
@@ -77,8 +87,11 @@ def read_current_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+class UserProfile(UserPublic):
+    friendship_status: FriendshipStatus
     
-@router.get("/{user_id}", response_model=SearchUser)
+@router.get("/{user_id}", response_model=UserProfile)
 def read_user(
     user_id: int, 
     session: Session = Depends(get_session), 
@@ -106,13 +119,16 @@ def read_user(
     user_dict = user.model_dump()
     
     if friendship:
-        user_dict["friendship_status"] = "friends"
+        user_dict["friendship_status"] = FriendshipStatus.FRIENDS
     elif request:
         if request.status == RequestStatus.PENDING:
-            user_dict["friendship_status"] = "pending" if request.sender_id == current_user_id else "pending"
+            user_dict["friendship_status"] = (
+                FriendshipStatus.REQUEST_SENT if request.sender_id == current_user_id 
+                else FriendshipStatus.REQUEST_RECEIVED
+            )
         elif request.status == RequestStatus.REJECTED:
-            user_dict["friendship_status"] = "none"  # Treat rejected same as no relationship
+            user_dict["friendship_status"] = FriendshipStatus.NONE  # Treat rejected same as no relationship
     else:
-        user_dict["friendship_status"] = "none"
+        user_dict["friendship_status"] = FriendshipStatus.NONE
     
     return user_dict
