@@ -106,7 +106,8 @@ def read_user(
         )
         .outerjoin(
             FriendRequest,
-            (FriendRequest.receiver_id == User.user_id) & (FriendRequest.sender_id == current_user_id)
+            (FriendRequest.receiver_id == User.user_id) & (FriendRequest.sender_id == current_user_id) |
+            (FriendRequest.receiver_id == current_user_id) & (FriendRequest.sender_id == user_id)
         )
         .where(User.user_id == user_id)
     )
