@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, BaseModel
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from typing import Optional
+from pydantic import BaseModel
 from enum import Enum
 
 from ..database import get_session
