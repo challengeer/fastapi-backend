@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BaseModel
 from sqlmodel import Session, select
 from typing import Optional
 from enum import Enum
@@ -21,9 +21,16 @@ class FriendshipStatus(str, Enum):
     NONE = "none"
 
 class SearchUser(UserPublic):
+    request_id: Optional[int]
     friendship_status: FriendshipStatus
 
-@router.get("/search", response_model=list[SearchUser])
+class SearchUsersResponse(BaseModel):
+    friends: list[SearchUser]
+    request_sent: list[SearchUser]
+    request_received: list[SearchUser]
+    none: list[SearchUser]
+
+@router.get("/search", response_model=SearchUsersResponse)
 def search_users(
     q: str = "",
     skip: int = 0,
@@ -52,28 +59,40 @@ def search_users(
     
     results = session.exec(statement).all()
     
-    users = []
+    categorized_users = {
+        "friends": [],
+        "request_sent": [],
+        "request_received": [],
+        "none": []
+    }
+    
     for user, friendship, request in results:
         if user.user_id == current_user_id:
             continue  # Skip the current user
             
         user_dict = user.model_dump()
         if friendship:
+            user_dict["request_id"] = None
             user_dict["friendship_status"] = FriendshipStatus.FRIENDS
+            categorized_users["friends"].append(user_dict)
         elif request:
+            user_dict["request_id"] = request.request_id
             if request.status == RequestStatus.PENDING:
-                user_dict["friendship_status"] = (
-                    FriendshipStatus.REQUEST_SENT if request.sender_id == current_user_id 
-                    else FriendshipStatus.REQUEST_RECEIVED
-                )
+                if request.sender_id == current_user_id:
+                    user_dict["friendship_status"] = FriendshipStatus.REQUEST_SENT
+                    categorized_users["request_sent"].append(user_dict)
+                else:
+                    user_dict["friendship_status"] = FriendshipStatus.REQUEST_RECEIVED
+                    categorized_users["request_received"].append(user_dict)
             elif request.status == RequestStatus.REJECTED:
-                user_dict["friendship_status"] = FriendshipStatus.NONE  # Treat rejected same as no relationship
+                user_dict["friendship_status"] = FriendshipStatus.NONE
+                categorized_users["none"].append(user_dict)
         else:
+            user_dict["request_id"] = None
             user_dict["friendship_status"] = FriendshipStatus.NONE
-            
-        users.append(user_dict)
+            categorized_users["none"].append(user_dict)
     
-    return users
+    return categorized_users
 
 class UserLocal(UserPublic):
     email: Optional[str]
