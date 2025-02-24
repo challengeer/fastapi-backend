@@ -61,10 +61,14 @@ def create_friend_request(
         elif existing_request.status != RequestStatus.REJECTED:
             raise HTTPException(status_code=400, detail="Active friend request already exists")
             
-        # Update the rejected request to pending
+        # If the request was rejected and the original sender is trying again, prevent it
+        if existing_request.sender_id == user_id:
+            raise HTTPException(status_code=400, detail="Cannot send another request after being rejected")
+            
+        # Only allow the person who rejected to send a new request
         existing_request.status = RequestStatus.PENDING
-        existing_request.sender_id = user_id
-        existing_request.receiver_id = request.receiver_id
+        existing_request.sender_id = request.receiver_id
+        existing_request.receiver_id = user_id
         session.add(existing_request)
         session.commit()
         session.refresh(existing_request)
