@@ -110,6 +110,7 @@ def read_current_user(
     return user
 
 class UserProfile(UserPublic):
+    request_id: Optional[int]
     friendship_status: FriendshipStatus
     
 @router.get("/{user_id}", response_model=UserProfile)
@@ -141,16 +142,19 @@ def read_user(
     user_dict = user.model_dump()
     
     if friendship:
+        user_dict["request_id"] = None
         user_dict["friendship_status"] = FriendshipStatus.FRIENDS
     elif request:
+        user_dict["request_id"] = request.request_id
         if request.status == RequestStatus.PENDING:
             user_dict["friendship_status"] = (
                 FriendshipStatus.REQUEST_SENT if request.sender_id == current_user_id 
                 else FriendshipStatus.REQUEST_RECEIVED
             )
         elif request.status == RequestStatus.REJECTED:
-            user_dict["friendship_status"] = FriendshipStatus.NONE  # Treat rejected same as no relationship
+            user_dict["friendship_status"] = FriendshipStatus.NONE
     else:
+        user_dict["request_id"] = None
         user_dict["friendship_status"] = FriendshipStatus.NONE
     
     return user_dict
