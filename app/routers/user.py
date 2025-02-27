@@ -1,14 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select
 from typing import Optional
 from pydantic import BaseModel
 from enum import Enum
+import uuid
+from PIL import Image
+from io import BytesIO
 
 from ..database import get_session
 from ..models.user import User, UserPublic
 from ..models.friendship import Friendship
 from ..models.friend_request import FriendRequest, RequestStatus
 from ..auth import get_current_user_id
+from ..s3 import s3_client
+from ..config import S3_BUCKET_NAME
 
 router = APIRouter(
     prefix="/user",
@@ -158,3 +163,107 @@ def read_user(
         user_dict["friendship_status"] = FriendshipStatus.NONE
     
     return user_dict
+
+class UpdateUsernameRequest(BaseModel):
+    username: str
+
+class UpdateDisplayNameRequest(BaseModel):
+    display_name: str
+
+@router.put("/username", response_model=UserPublic)
+def update_username(
+    request: UpdateUsernameRequest,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Check if username is taken
+    existing_user = session.exec(
+        select(User).where(User.username == request.username)
+    ).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already taken")
+    
+    # Update username
+    user = session.exec(select(User).where(User.user_id == current_user_id)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.username = request.username
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+@router.put("/display-name", response_model=UserPublic)
+def update_display_name(
+    request: UpdateDisplayNameRequest,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    user = session.get(User, current_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.display_name = request.display_name
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+@router.put("/profile-picture", response_model=UserPublic)
+async def update_profile_picture(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Validate file type
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    # Read and process image
+    try:
+        # Read image into memory
+        contents = await file.read()
+        image = Image.open(BytesIO(contents))
+        
+        # Convert to RGB if image is in RGBA mode
+        if image.mode == 'RGBA':
+            image = image.convert('RGB')
+        
+        # Calculate new dimensions while maintaining aspect ratio
+        max_size = 400
+        ratio = min(max_size/image.width, max_size/image.height)
+        if ratio < 1:  # Only resize if image is larger than max_size
+            new_size = (int(image.width * ratio), int(image.height * ratio))
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # Save processed image to memory
+        output = BytesIO()
+        image.save(output, format='JPEG', quality=85)
+        output.seek(0)
+        
+        # Generate unique filename
+        new_filename = f"profile-pictures/{current_user_id}-{uuid.uuid4()}.jpg"
+        
+        # Upload to S3
+        s3_client.upload_fileobj(
+            output,
+            S3_BUCKET_NAME,
+            new_filename,
+            ExtraArgs={'ContentType': 'image/jpeg'}
+        )
+        s3_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{new_filename}"
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to process or upload image")
+    
+    # Update user profile picture URL
+    user = session.get(User, current_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.profile_picture = s3_url
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
