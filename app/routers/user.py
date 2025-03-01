@@ -176,9 +176,11 @@ def update_username(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
+    username = request.username.lower().strip()
+
     # Check if username is taken
     existing_user = session.exec(
-        select(User).where(User.username == request.username)
+        select(User).where(User.username == username)
     ).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already taken")
@@ -188,7 +190,7 @@ def update_username(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    user.username = request.username
+    user.username = username
     session.add(user)
     session.commit()
     session.refresh(user)

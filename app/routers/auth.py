@@ -199,7 +199,7 @@ def verify_code(request: VerificationCodeVerify, session: Session = Depends(get_
 
 @router.get("/check-username", response_model=UsernameCheckResponse)
 def check_username_exists(username: str, session: Session = Depends(get_session)):
-    statement = select(User).where(User.username == username)
+    statement = select(User).where(User.username == username.lower().strip())
     existing_user = session.exec(statement).first()
     return UsernameCheckResponse(
         username=username,
