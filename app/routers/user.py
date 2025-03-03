@@ -221,7 +221,7 @@ async def update_profile_picture(
 ):
     # Get current user and their existing profile picture
     user = session.exec(
-        select(User.profile_picture).where(User.user_id == current_user_id)
+        select(User).where(User.user_id == current_user_id)
     ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
