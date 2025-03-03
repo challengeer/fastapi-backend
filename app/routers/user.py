@@ -6,6 +6,7 @@ from enum import Enum
 import uuid
 from PIL import Image
 from io import BytesIO
+import re
 
 from ..database import get_session
 from ..models.user import User, UserPublic
@@ -218,6 +219,20 @@ async def update_profile_picture(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
+    # Get current user and their existing profile picture
+    user = session.exec(
+        select(User.profile_picture).where(User.user_id == current_user_id)
+    ).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Extract old image key if it exists
+    old_image_key = None
+    if user.profile_picture:
+        match = re.search(r'profile-pictures/.*$', user.profile_picture)
+        if match:
+            old_image_key = match.group(0)
+
     # Validate file type
     if not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
@@ -255,15 +270,19 @@ async def update_profile_picture(
             ExtraArgs={'ContentType': 'image/jpeg'}
         )
         s3_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{new_filename}"
+
+        # Delete old image if it exists
+        if old_image_key:
+            try:
+                s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=old_image_key)
+            except Exception:
+                # Log error but don't fail the request if deletion fails
+                print(f"Failed to delete old profile picture: {old_image_key}")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to process or upload image")
     
     # Update user profile picture URL
-    user = session.get(User, current_user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
     user.profile_picture = s3_url
     session.add(user)
     session.commit()
