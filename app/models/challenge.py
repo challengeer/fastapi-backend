@@ -19,6 +19,3 @@ class ChallengeBase(SQLModel):
 
 class Challenge(ChallengeBase, table=True):
     challenge_id: Optional[int] = Field(default=None, primary_key=True)
-
-    class Config:
-        table_name = "challenges" 

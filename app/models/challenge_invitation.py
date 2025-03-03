@@ -9,7 +9,7 @@ class InvitationStatus(str, Enum):
     DECLINED = "declined"
 
 class ChallengeInvitationBase(SQLModel):
-    challenge_id: int = Field(foreign_key="challenges.challenge_id", index=True)
+    challenge_id: int = Field(foreign_key="challenge.challenge_id", index=True)
     sender_id: int = Field(foreign_key="user.user_id", index=True)
     receiver_id: int = Field(foreign_key="user.user_id", index=True)
     status: InvitationStatus = Field(default=InvitationStatus.PENDING)
@@ -20,7 +20,6 @@ class ChallengeInvitation(ChallengeInvitationBase, table=True):
     invitation_id: Optional[int] = Field(default=None, primary_key=True)
 
     class Config:
-        table_name = "challenge_invitations"
         sa_column_kwargs = {
             "challenge_id,receiver_id": {"unique": True}  # One invitation per user per challenge
         }
