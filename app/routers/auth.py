@@ -5,13 +5,13 @@ from datetime import datetime, timezone,timedelta
 from jose import jwt
 from google.oauth2 import id_token
 from google.auth.transport import requests
-from ..config import GOOGLE_CLIENT_ID, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
 import secrets
 
-from ..auth import create_token
+from ..auth import create_token, normalize_username, validate_username
 from ..database import get_session
 from ..models.user import User, UserPublic
 from ..models.verification_code import VerificationCode, VerificationCodeCreate, VerificationCodeVerify
+from ..config import GOOGLE_CLIENT_ID, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
 
 router = APIRouter(
     prefix="/auth",
@@ -40,10 +40,9 @@ def create_tokens(user_id: int):
     return {"access_token": access_token, "refresh_token": refresh_token}
 
 def generate_username(first_name: str, last_name: str) -> str:
-    # Convert names to lowercase
-    first_name = first_name.lower()
-    last_name = last_name.lower() if last_name else ""
-    random_numbers = ''.join([str(secrets.randbelow(10)) for _ in range(4)])
+    first_name = normalize_username(first_name)
+    last_name = normalize_username(last_name) if last_name else ""
+    random_numbers = "".join([str(secrets.randbelow(10)) for _ in range(4)])
     
     if last_name:
         # username format: f_lastname1234
@@ -122,7 +121,9 @@ async def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_
             )
         
         user_id = int(payload["sub"])
-        user = db.get(User, user_id)
+        user = db.exec(
+            select(User).where(User.user_id == user_id)
+        ).first()
         
         if not user:
             raise HTTPException(
@@ -199,9 +200,10 @@ def verify_code(request: VerificationCodeVerify, session: Session = Depends(get_
 
 @router.get("/check-username", response_model=UsernameCheckResponse)
 def check_username_exists(username: str, session: Session = Depends(get_session)):
-    statement = select(User).where(User.username == username.lower().strip())
+    validated_username = validate_username(username)
+    statement = select(User).where(User.username == validated_username)
     existing_user = session.exec(statement).first()
     return UsernameCheckResponse(
-        username=username,
+        username=validated_username,
         exists=existing_user is not None
     )

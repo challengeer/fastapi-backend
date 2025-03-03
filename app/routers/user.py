@@ -11,7 +11,7 @@ from ..database import get_session
 from ..models.user import User, UserPublic
 from ..models.friendship import Friendship
 from ..models.friend_request import FriendRequest, RequestStatus
-from ..auth import get_current_user_id
+from ..auth import get_current_user_id, validate_username
 from ..s3 import s3_client
 from ..config import S3_BUCKET_NAME
 
@@ -176,11 +176,11 @@ def update_username(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    username = request.username.lower().strip()
+    validated_username = validate_username(request.username)
 
     # Check if username is taken
     existing_user = session.exec(
-        select(User).where(User.username == username)
+        select(User).where(User.username == validated_username)
     ).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already taken")
@@ -190,7 +190,7 @@ def update_username(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    user.username = username
+    user.username = validated_username
     session.add(user)
     session.commit()
     session.refresh(user)

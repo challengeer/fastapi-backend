@@ -4,6 +4,8 @@ from fastapi import Depends, HTTPException, status
 from .config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 from fastapi.security import OAuth2PasswordBearer
 from typing import Annotated
+import unicodedata
+import re
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -37,3 +39,19 @@ async def get_current_user_id(payload: Annotated[dict, Depends(verify_token)]) -
             detail="Invalid token type"
         )
     return int(payload.get("sub"))
+
+def normalize_username(username: str) -> str:
+    username = username.lower().strip()
+    username = unicodedata.normalize("NFKD", username).encode("ASCII", "ignore").decode("ASCII")
+    return username
+
+def validate_username(username: str) -> str:
+    username = normalize_username(username)
+    
+    if not username or len(username) > 15 or not re.match(r'^[a-z0-9_]+$', username):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username must be max 15 characters and contain only alphanumeric characters and underscores"
+        )
+    
+    return username
