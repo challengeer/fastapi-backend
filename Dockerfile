@@ -27,4 +27,4 @@ COPY . .
 EXPOSE 8000
 
 # Command to run FastAPI app
-CMD ["fastapi", "run", "app/main.py"]
+CMD ["fastapi", "run", "app/main.py", "--reload"]
