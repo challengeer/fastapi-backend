@@ -1,0 +1,475 @@
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlmodel import Session, select
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime, timedelta
+import uuid
+from PIL import Image
+from io import BytesIO
+
+from ..database import get_session
+from ..models.user import User, UserPublic
+from ..models.challenge import Challenge, ChallengeStatus
+from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
+from ..models.challenge_submission import ChallengeSubmission
+from ..models.submission_view import SubmissionView
+from ..auth import get_current_user_id
+from ..s3 import s3_client
+from ..config import S3_BUCKET_NAME
+
+router = APIRouter(
+    prefix="/challenges",
+    tags=["Challenges"]
+)
+
+class ChallengeCreate(BaseModel):
+    title: str
+    description: str
+    start_date: datetime
+
+class ChallengeInviteCreate(BaseModel):
+    challenge_id: int
+    receiver_ids: List[int]
+
+class ChallengeInviteAction(BaseModel):
+    invitation_id: int
+
+class ChallengeResponse(BaseModel):
+    challenge_id: int
+    creator_id: int
+    title: str
+    description: str
+    start_date: datetime
+    end_date: Optional[datetime]
+    status: ChallengeStatus
+    created_at: datetime
+    creator: UserPublic
+    participants: List[UserPublic]
+    has_new_submissions: bool
+
+class SubmissionResponse(BaseModel):
+    submission_id: int
+    challenge_id: int
+    user_id: int
+    photo_url: str
+    caption: Optional[str]
+    submitted_at: datetime
+    user: UserPublic
+    is_new: bool = False
+
+@router.post("/create", response_model=Challenge)
+def create_challenge(
+    challenge: ChallengeCreate,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    end_date = challenge.start_date + timedelta(days=2)
+
+    new_challenge = Challenge(
+        creator_id=current_user_id,
+        title=challenge.title,
+        description=challenge.description,
+        start_date=challenge.start_date,
+        end_date=end_date
+    )
+    session.add(new_challenge)
+    session.commit()
+    session.refresh(new_challenge)
+    return new_challenge
+
+@router.post("/invite")
+def invite_to_challenge(
+    invite: ChallengeInviteCreate,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Verify challenge exists and user is the creator
+    challenge = session.exec(
+        select(Challenge).where(Challenge.challenge_id == invite.challenge_id)
+    ).first()
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    if challenge.creator_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Only challenge creator can send invites")
+    if challenge.status != ChallengeStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Can only invite to active challenges")
+
+    # Create invitations
+    invitations = []
+    for receiver_id in invite.receiver_ids:
+        # Skip if user doesn't exist
+        if not session.get(User, receiver_id):
+            continue
+            
+        # Skip if invitation already exists
+        existing = session.exec(
+            select(ChallengeInvitation)
+            .where(
+                ChallengeInvitation.challenge_id == invite.challenge_id,
+                ChallengeInvitation.receiver_id == receiver_id
+            )
+        ).first()
+        if existing:
+            continue
+
+        invitation = ChallengeInvitation(
+            challenge_id=invite.challenge_id,
+            sender_id=current_user_id,
+            receiver_id=receiver_id
+        )
+        session.add(invitation)
+        invitations.append(invitation)
+
+    session.commit()
+    return {"message": f"Sent {len(invitations)} invitations"}
+
+@router.put("/accept")
+def accept_challenge(
+    action: ChallengeInviteAction,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    invitation = session.get(ChallengeInvitation, action.invitation_id)
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    
+    if invitation.receiver_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Can only accept your own invitations")
+    
+    if invitation.status != InvitationStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Invitation is not pending")
+
+    # Check if challenge is still active
+    challenge = session.get(Challenge, invitation.challenge_id)
+    if not challenge or challenge.status != ChallengeStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Challenge is not active")
+    
+    invitation.status = InvitationStatus.ACCEPTED
+    invitation.responded_at = datetime.now()
+    session.add(invitation)
+    session.commit()
+    session.refresh(invitation)
+    return invitation
+
+@router.put("/decline")
+def decline_challenge(
+    action: ChallengeInviteAction,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    invitation = session.get(ChallengeInvitation, action.invitation_id)
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    
+    if invitation.receiver_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Can only decline your own invitations")
+    
+    if invitation.status != InvitationStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Invitation is not pending")
+    
+    invitation.status = InvitationStatus.DECLINED
+    invitation.responded_at = datetime.now()
+    session.add(invitation)
+    session.commit()
+    session.refresh(invitation)
+    return invitation
+
+@router.get("/my", response_model=List[ChallengeResponse])
+def get_my_challenges(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Get challenges where user is either creator or accepted participant
+    statement = (
+        select(Challenge, User)
+        .join(User, User.user_id == Challenge.creator_id)
+        .where(
+            (Challenge.creator_id == current_user_id) |
+            Challenge.challenge_id.in_(
+                select(ChallengeInvitation.challenge_id)
+                .where(
+                    (ChallengeInvitation.receiver_id == current_user_id) &
+                    (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+                )
+            )
+        )
+    )
+    results = session.exec(statement).all()
+    
+    challenges = []
+    for challenge, creator in results:
+        # Get all accepted participants
+        participants_query = (
+            select(User)
+            .join(ChallengeInvitation, ChallengeInvitation.receiver_id == User.user_id)
+            .where(
+                (ChallengeInvitation.challenge_id == challenge.challenge_id) &
+                (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+            )
+        )
+        participants = session.exec(participants_query).all()
+
+        # Check for new submissions
+        new_submissions_exist = session.exec(
+            select(ChallengeSubmission)
+            .where(
+                (ChallengeSubmission.challenge_id == challenge.challenge_id) &
+                (ChallengeSubmission.user_id != current_user_id) &
+                ~ChallengeSubmission.submission_id.in_(
+                    select(SubmissionView.submission_id)
+                    .where(SubmissionView.viewer_id == current_user_id)
+                )
+            )
+        ).first() is not None
+        
+        challenge_dict = challenge.model_dump()
+        challenge_dict["creator"] = creator
+        challenge_dict["participants"] = participants
+        challenge_dict["has_new_submissions"] = new_submissions_exist
+        challenges.append(challenge_dict)
+    
+    return challenges
+
+@router.get("/invitations", response_model=List[dict])
+def get_challenge_invitations(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    statement = (
+        select(ChallengeInvitation, Challenge, User)
+        .join(Challenge, Challenge.challenge_id == ChallengeInvitation.challenge_id)
+        .join(User, User.user_id == Challenge.creator_id)
+        .where(
+            (ChallengeInvitation.receiver_id == current_user_id) &
+            (ChallengeInvitation.status == InvitationStatus.PENDING) &
+            (Challenge.status == ChallengeStatus.ACTIVE)
+        )
+    )
+    results = session.exec(statement).all()
+    
+    invitations = []
+    for invitation, challenge, creator in results:
+        invitations.append({
+            "invitation_id": invitation.invitation_id,
+            "challenge": challenge,
+            "creator": creator,
+            "sent_at": invitation.sent_at
+        })
+    
+    return invitations
+
+@router.post("/{challenge_id}/submit", response_model=ChallengeSubmission)
+async def submit_challenge_photo(
+    challenge_id: int,
+    caption: Optional[str] = None,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Check if challenge exists and is active
+    challenge = session.get(Challenge, challenge_id)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    if challenge.status != ChallengeStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Challenge is not active")
+
+    # Check if user is participant or creator
+    if challenge.creator_id != current_user_id:
+        invitation = session.exec(
+            select(ChallengeInvitation)
+            .where(
+                (ChallengeInvitation.challenge_id == challenge_id) &
+                (ChallengeInvitation.receiver_id == current_user_id) &
+                (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+            )
+        ).first()
+        if not invitation:
+            raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
+
+    # Check if user already submitted
+    existing_submission = session.exec(
+        select(ChallengeSubmission)
+        .where(
+            (ChallengeSubmission.challenge_id == challenge_id) &
+            (ChallengeSubmission.user_id == current_user_id)
+        )
+    ).first()
+    if existing_submission:
+        raise HTTPException(status_code=400, detail="You have already submitted to this challenge")
+
+    # Validate file type
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    try:
+        # Read and process image
+        contents = await file.read()
+        image = Image.open(BytesIO(contents))
+        
+        # Convert to RGB if image is in RGBA mode
+        if image.mode == 'RGBA':
+            image = image.convert('RGB')
+        
+        # Calculate new dimensions while maintaining aspect ratio
+        max_size = 1200
+        ratio = min(max_size/image.width, max_size/image.height)
+        if ratio < 1:  # Only resize if image is larger than max_size
+            new_size = (int(image.width * ratio), int(image.height * ratio))
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # Save processed image to memory
+        output = BytesIO()
+        image.save(output, format='JPEG', quality=85)
+        output.seek(0)
+        
+        # Generate unique filename
+        filename = f"challenge-submissions/{challenge_id}/{current_user_id}-{uuid.uuid4()}.jpg"
+        
+        # Upload to S3
+        s3_client.upload_fileobj(
+            output,
+            S3_BUCKET_NAME,
+            filename,
+            ExtraArgs={'ContentType': 'image/jpeg'}
+        )
+        photo_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{filename}"
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to process or upload image")
+
+    # Create submission
+    submission = ChallengeSubmission(
+        challenge_id=challenge_id,
+        user_id=current_user_id,
+        photo_url=photo_url,
+        caption=caption
+    )
+    session.add(submission)
+    session.commit()
+    session.refresh(submission)
+    return submission
+
+@router.get("/{challenge_id}/submissions", response_model=List[SubmissionResponse])
+async def get_challenge_submissions(
+    challenge_id: int,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Check if challenge exists
+    challenge = session.get(Challenge, challenge_id)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+
+    # Check if user is participant or creator
+    is_participant = False
+    if challenge.creator_id == current_user_id:
+        is_participant = True
+    else:
+        invitation = session.exec(
+            select(ChallengeInvitation)
+            .where(
+                (ChallengeInvitation.challenge_id == challenge_id) &
+                (ChallengeInvitation.receiver_id == current_user_id) &
+                (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+            )
+        ).first()
+        if invitation:
+            is_participant = True
+
+    if not is_participant:
+        raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
+
+    # Check if user has submitted
+    has_submitted = session.exec(
+        select(ChallengeSubmission)
+        .where(
+            (ChallengeSubmission.challenge_id == challenge_id) &
+            (ChallengeSubmission.user_id == current_user_id)
+        )
+    ).first() is not None
+
+    if not has_submitted and challenge.creator_id != current_user_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="You must submit your photo before viewing other submissions"
+        )
+
+    # Get all submissions with user information and view status
+    statement = (
+        select(ChallengeSubmission, User, SubmissionView)
+        .join(User, User.user_id == ChallengeSubmission.user_id)
+        .outerjoin(
+            SubmissionView,
+            (SubmissionView.submission_id == ChallengeSubmission.submission_id) &
+            (SubmissionView.viewer_id == current_user_id)
+        )
+        .where(ChallengeSubmission.challenge_id == challenge_id)
+    )
+    results = session.exec(statement).all()
+
+    # Create view records for newly seen submissions
+    new_views = []
+    submissions = []
+    for submission, user, view in results:
+        submission_dict = submission.model_dump()
+        submission_dict["user"] = user
+        submission_dict["is_new"] = view is None and submission.user_id != current_user_id
+
+        # If this is a new submission (not viewed before and not own submission)
+        if submission_dict["is_new"]:
+            new_view = SubmissionView(
+                submission_id=submission.submission_id,
+                viewer_id=current_user_id
+            )
+            new_views.append(new_view)
+
+        submissions.append(submission_dict)
+
+    # Save view records
+    if new_views:
+        session.add_all(new_views)
+        session.commit()
+
+    return submissions
+
+@router.get("/{challenge_id}/has-new", response_model=bool)
+async def check_new_submissions(
+    challenge_id: int,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    """Check if there are any new submissions in the challenge that the user hasn't seen."""
+    
+    # First verify user is participant
+    if not session.exec(
+        select(Challenge)
+        .where(
+            (Challenge.challenge_id == challenge_id) &
+            (
+                (Challenge.creator_id == current_user_id) |
+                Challenge.challenge_id.in_(
+                    select(ChallengeInvitation.challenge_id)
+                    .where(
+                        (ChallengeInvitation.receiver_id == current_user_id) &
+                        (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+                    )
+                )
+            )
+        )
+    ).first():
+        raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
+
+    # Check for new submissions
+    new_submissions = session.exec(
+        select(ChallengeSubmission)
+        .where(
+            (ChallengeSubmission.challenge_id == challenge_id) &
+            (ChallengeSubmission.user_id != current_user_id) &
+            ~ChallengeSubmission.submission_id.in_(
+                select(SubmissionView.submission_id)
+                .where(SubmissionView.viewer_id == current_user_id)
+            )
+        )
+    ).first()
+
+    return new_submissions is not None 
