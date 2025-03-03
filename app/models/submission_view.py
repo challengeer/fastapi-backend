@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime, timezone
 
 class SubmissionViewBase(SQLModel):
-    submission_id: int = Field(foreign_key="challenge_submission.submission_id", index=True)
+    submission_id: int = Field(foreign_key="challengesubmission.submission_id", index=True)
     viewer_id: int = Field(foreign_key="user.user_id", index=True)
     viewed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
