@@ -25,7 +25,6 @@ router = APIRouter(
 class ChallengeCreate(BaseModel):
     title: str
     description: str
-    start_date: datetime
 
 class ChallengeInviteCreate(BaseModel):
     challenge_id: int
@@ -63,13 +62,14 @@ def create_challenge(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    end_date = challenge.start_date + timedelta(days=2)
+    start_date = datetime.now()
+    end_date = start_date + timedelta(days=2)
 
     new_challenge = Challenge(
         creator_id=current_user_id,
         title=challenge.title,
         description=challenge.description,
-        start_date=challenge.start_date,
+        start_date=start_date,
         end_date=end_date
     )
     session.add(new_challenge)
