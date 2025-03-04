@@ -230,7 +230,7 @@ def get_my_challenges(
     
     return challenges
 
-@router.get("/invitations", response_model=List[dict])
+@router.get("/invites", response_model=List[dict])
 def get_challenge_invitations(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
