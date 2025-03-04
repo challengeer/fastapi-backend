@@ -24,8 +24,8 @@ router = APIRouter(
 
 class ChallengeCreate(BaseModel):
     title: str
-    description: str
-    emoji: str
+    description: Optional[str] = None
+    emoji: Optional[str] = "🎯"
     category: str
 
 class ChallengeInviteCreate(BaseModel):
