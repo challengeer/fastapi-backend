@@ -94,6 +94,7 @@ def create_challenge(
         creator_id=current_user_id,
         title=challenge.title,
         description=challenge.description,
+        emoji=challenge.emoji,
         category=challenge.category,
         start_date=start_date,
         end_date=end_date
