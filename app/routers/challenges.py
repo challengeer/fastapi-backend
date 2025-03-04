@@ -25,7 +25,8 @@ router = APIRouter(
 class ChallengeCreate(BaseModel):
     title: str
     description: str
-    category: Optional[str] = "🎯"  # Default emoji category
+    emoji: str
+    category: str
 
 class ChallengeInviteCreate(BaseModel):
     challenge_id: int
@@ -39,6 +40,7 @@ class ChallengeResponse(BaseModel):
     creator_id: int
     title: str
     description: str
+    emoji: str
     category: str
     start_date: datetime
     end_date: Optional[datetime]
@@ -67,16 +69,13 @@ class ChallengeInviteResponse(BaseModel):
 class SimpleChallengeResponse(BaseModel):
     challenge_id: int
     title: str
+    emoji: str
     category: str
     end_date: Optional[datetime]
     has_new_submissions: bool
 
-class SimpleInviteResponse(BaseModel):
+class SimpleInviteResponse(SimpleChallengeResponse):
     invitation_id: int
-    challenge_title: str
-    challenge_category: str
-    challenge_end_date: Optional[datetime]
-    sent_at: datetime
 
 class ChallengesListResponse(BaseModel):
     challenges: List[SimpleChallengeResponse]
@@ -240,6 +239,7 @@ def get_my_challenges(
         challenges.append({
             "challenge_id": challenge.challenge_id,
             "title": challenge.title,
+            "emoji": challenge.emoji,
             "category": challenge.category,
             "end_date": challenge.end_date,
             "has_new_submissions": new_submissions_exist
@@ -261,10 +261,11 @@ def get_my_challenges(
     for invitation, challenge in invite_results:
         invitations.append({
             "invitation_id": invitation.invitation_id,
-            "challenge_title": challenge.title,
-            "challenge_category": challenge.category,
-            "challenge_end_date": challenge.end_date,
-            "sent_at": invitation.sent_at
+            "challenge_id": challenge.challenge_id,
+            "title": challenge.title,
+            "emoji": challenge.emoji,
+            "category": challenge.category,
+            "end_date": challenge.end_date
         })
     
     return {
