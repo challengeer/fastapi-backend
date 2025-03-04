@@ -174,7 +174,7 @@ def decline_challenge(
     session.refresh(invitation)
     return invitation
 
-@router.get("/my", response_model=List[ChallengeResponse])
+@router.get("/list", response_model=List[ChallengeResponse])
 def get_my_challenges(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
