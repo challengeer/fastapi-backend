@@ -66,15 +66,17 @@ class ChallengeInviteResponse(BaseModel):
     creator: UserPublic
     sent_at: datetime
 
-class SimpleChallengeResponse(BaseModel):
+class ChallengePublic(BaseModel):
     challenge_id: int
     title: str
     emoji: str
     category: str
     end_date: Optional[datetime]
+
+class SimpleChallengeResponse(ChallengePublic):
     has_new_submissions: bool
 
-class SimpleInviteResponse(SimpleChallengeResponse):
+class SimpleInviteResponse(ChallengePublic):
     invitation_id: int
 
 class ChallengesListResponse(BaseModel):
