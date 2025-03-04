@@ -114,13 +114,13 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
 async def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_session)):
     try:
         payload = jwt.decode(request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
-        if payload["type"] != "refresh":
+        if payload.get("type") != "refresh":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid refresh token"
             )
         
-        user_id = int(payload["sub"])
+        user_id = int(payload.get("sub"))
         user = db.exec(
             select(User).where(User.user_id == user_id)
         ).first()
