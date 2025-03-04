@@ -12,6 +12,7 @@ class ChallengeBase(SQLModel):
     creator_id: int = Field(foreign_key="user.user_id", index=True)
     title: str = Field(max_length=200)
     description: str = Field(max_length=1000)
+    category: str = Field(max_length=10, default="🎯")  # Default emoji category
     start_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     end_date: Optional[datetime] = None
     status: ChallengeStatus = Field(default=ChallengeStatus.ACTIVE)

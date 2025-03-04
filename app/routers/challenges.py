@@ -25,6 +25,7 @@ router = APIRouter(
 class ChallengeCreate(BaseModel):
     title: str
     description: str
+    category: Optional[str] = "🎯"  # Default emoji category
 
 class ChallengeInviteCreate(BaseModel):
     challenge_id: int
@@ -38,6 +39,7 @@ class ChallengeResponse(BaseModel):
     creator_id: int
     title: str
     description: str
+    category: str
     start_date: datetime
     end_date: Optional[datetime]
     status: ChallengeStatus
@@ -56,6 +58,30 @@ class SubmissionResponse(BaseModel):
     user: UserPublic
     is_new: bool = False
 
+class ChallengeInviteResponse(BaseModel):
+    invitation_id: int
+    challenge: Challenge
+    creator: UserPublic
+    sent_at: datetime
+
+class SimpleChallengeResponse(BaseModel):
+    challenge_id: int
+    title: str
+    category: str
+    end_date: Optional[datetime]
+    has_new_submissions: bool
+
+class SimpleInviteResponse(BaseModel):
+    invitation_id: int
+    challenge_title: str
+    challenge_category: str
+    challenge_end_date: Optional[datetime]
+    sent_at: datetime
+
+class ChallengesListResponse(BaseModel):
+    challenges: List[SimpleChallengeResponse]
+    invitations: List[SimpleInviteResponse]
+
 @router.post("/create", response_model=Challenge)
 def create_challenge(
     challenge: ChallengeCreate,
@@ -69,6 +95,7 @@ def create_challenge(
         creator_id=current_user_id,
         title=challenge.title,
         description=challenge.description,
+        category=challenge.category,
         start_date=start_date,
         end_date=end_date
     )
@@ -174,15 +201,14 @@ def decline_challenge(
     session.refresh(invitation)
     return invitation
 
-@router.get("/list", response_model=List[ChallengeResponse])
+@router.get("/list", response_model=ChallengesListResponse)
 def get_my_challenges(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
     # Get challenges where user is either creator or accepted participant
     statement = (
-        select(Challenge, User)
-        .join(User, User.user_id == Challenge.creator_id)
+        select(Challenge)
         .where(
             (Challenge.creator_id == current_user_id) |
             Challenge.challenge_id.in_(
@@ -197,18 +223,7 @@ def get_my_challenges(
     results = session.exec(statement).all()
     
     challenges = []
-    for challenge, creator in results:
-        # Get all accepted participants
-        participants_query = (
-            select(User)
-            .join(ChallengeInvitation, ChallengeInvitation.receiver_id == User.user_id)
-            .where(
-                (ChallengeInvitation.challenge_id == challenge.challenge_id) &
-                (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-            )
-        )
-        participants = session.exec(participants_query).all()
-
+    for challenge in results:
         # Check for new submissions
         new_submissions_exist = session.exec(
             select(ChallengeSubmission)
@@ -222,13 +237,40 @@ def get_my_challenges(
             )
         ).first() is not None
         
-        challenge_dict = challenge.model_dump()
-        challenge_dict["creator"] = creator
-        challenge_dict["participants"] = participants
-        challenge_dict["has_new_submissions"] = new_submissions_exist
-        challenges.append(challenge_dict)
+        challenges.append({
+            "challenge_id": challenge.challenge_id,
+            "title": challenge.title,
+            "category": challenge.category,
+            "end_date": challenge.end_date,
+            "has_new_submissions": new_submissions_exist
+        })
+
+    # Get pending invitations
+    invites_statement = (
+        select(ChallengeInvitation, Challenge)
+        .join(Challenge, Challenge.challenge_id == ChallengeInvitation.challenge_id)
+        .where(
+            (ChallengeInvitation.receiver_id == current_user_id) &
+            (ChallengeInvitation.status == InvitationStatus.PENDING) &
+            (Challenge.status == ChallengeStatus.ACTIVE)
+        )
+    )
+    invite_results = session.exec(invites_statement).all()
     
-    return challenges
+    invitations = []
+    for invitation, challenge in invite_results:
+        invitations.append({
+            "invitation_id": invitation.invitation_id,
+            "challenge_title": challenge.title,
+            "challenge_category": challenge.category,
+            "challenge_end_date": challenge.end_date,
+            "sent_at": invitation.sent_at
+        })
+    
+    return {
+        "challenges": challenges,
+        "invitations": invitations
+    }
 
 @router.get("/invites", response_model=List[dict])
 def get_challenge_invitations(
@@ -472,4 +514,72 @@ async def check_new_submissions(
         )
     ).first()
 
-    return new_submissions is not None 
+    return new_submissions is not None
+
+@router.get("/{challenge_id}", response_model=ChallengeResponse)
+def get_challenge_details(
+    challenge_id: int,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Get challenge with creator info
+    statement = (
+        select(Challenge, User)
+        .join(User, User.user_id == Challenge.creator_id)
+        .where(Challenge.challenge_id == challenge_id)
+    )
+    result = session.exec(statement).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    
+    challenge, creator = result
+
+    # Check if user is participant or creator
+    is_participant = False
+    if challenge.creator_id == current_user_id:
+        is_participant = True
+    else:
+        invitation = session.exec(
+            select(ChallengeInvitation)
+            .where(
+                (ChallengeInvitation.challenge_id == challenge_id) &
+                (ChallengeInvitation.receiver_id == current_user_id) &
+                (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+            )
+        ).first()
+        if invitation:
+            is_participant = True
+
+    if not is_participant:
+        raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
+
+    # Get all accepted participants
+    participants_query = (
+        select(User)
+        .join(ChallengeInvitation, ChallengeInvitation.receiver_id == User.user_id)
+        .where(
+            (ChallengeInvitation.challenge_id == challenge_id) &
+            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+        )
+    )
+    participants = session.exec(participants_query).all()
+
+    # Check for new submissions
+    new_submissions_exist = session.exec(
+        select(ChallengeSubmission)
+        .where(
+            (ChallengeSubmission.challenge_id == challenge_id) &
+            (ChallengeSubmission.user_id != current_user_id) &
+            ~ChallengeSubmission.submission_id.in_(
+                select(SubmissionView.submission_id)
+                .where(SubmissionView.viewer_id == current_user_id)
+            )
+        )
+    ).first() is not None
+
+    challenge_dict = challenge.model_dump()
+    challenge_dict["creator"] = creator
+    challenge_dict["participants"] = participants
+    challenge_dict["has_new_submissions"] = new_submissions_exist
+
+    return challenge_dict
