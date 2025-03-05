@@ -78,6 +78,7 @@ class SimpleChallengeResponse(ChallengePublic):
 
 class SimpleInviteResponse(ChallengePublic):
     invitation_id: int
+    sender: UserPublic
 
 class ChallengesListResponse(BaseModel):
     challenges: List[SimpleChallengeResponse]
@@ -250,8 +251,9 @@ def get_my_challenges(
 
     # Get pending invitations
     invites_statement = (
-        select(ChallengeInvitation, Challenge)
+        select(ChallengeInvitation, Challenge, User)
         .join(Challenge, Challenge.challenge_id == ChallengeInvitation.challenge_id)
+        .join(User, User.user_id == ChallengeInvitation.sender_id)
         .where(
             (ChallengeInvitation.receiver_id == current_user_id) &
             (ChallengeInvitation.status == InvitationStatus.PENDING) &
@@ -261,48 +263,21 @@ def get_my_challenges(
     invite_results = session.exec(invites_statement).all()
     
     invitations = []
-    for invitation, challenge in invite_results:
+    for invitation, challenge, sender in invite_results:
         invitations.append({
             "invitation_id": invitation.invitation_id,
             "challenge_id": challenge.challenge_id,
             "title": challenge.title,
             "emoji": challenge.emoji,
             "category": challenge.category,
-            "end_date": challenge.end_date
+            "end_date": challenge.end_date,
+            "sender": sender
         })
     
     return {
         "challenges": challenges,
         "invitations": invitations
     }
-
-@router.get("/invites", response_model=List[dict])
-def get_challenge_invitations(
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    statement = (
-        select(ChallengeInvitation, Challenge, User)
-        .join(Challenge, Challenge.challenge_id == ChallengeInvitation.challenge_id)
-        .join(User, User.user_id == Challenge.creator_id)
-        .where(
-            (ChallengeInvitation.receiver_id == current_user_id) &
-            (ChallengeInvitation.status == InvitationStatus.PENDING) &
-            (Challenge.status == ChallengeStatus.ACTIVE)
-        )
-    )
-    results = session.exec(statement).all()
-    
-    invitations = []
-    for invitation, challenge, creator in results:
-        invitations.append({
-            "invitation_id": invitation.invitation_id,
-            "challenge": challenge,
-            "creator": creator,
-            "sent_at": invitation.sent_at
-        })
-    
-    return invitations
 
 @router.post("/{challenge_id}/submit", response_model=ChallengeSubmission)
 async def submit_challenge_photo(
