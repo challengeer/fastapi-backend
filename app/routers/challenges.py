@@ -213,14 +213,16 @@ def get_my_challenges(
     statement = (
         select(Challenge)
         .where(
-            (Challenge.creator_id == current_user_id) |
-            Challenge.challenge_id.in_(
-                select(ChallengeInvitation.challenge_id)
-                .where(
-                    (ChallengeInvitation.receiver_id == current_user_id) &
-                    (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+            (
+                (Challenge.creator_id == current_user_id) |
+                Challenge.challenge_id.in_(
+                    select(ChallengeInvitation.challenge_id)
+                    .where(
+                        (ChallengeInvitation.receiver_id == current_user_id) &
+                        (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+                    )
                 )
-            )
+            ) & (Challenge.end_date > datetime.now())
         )
     )
     results = session.exec(statement).all()
@@ -257,7 +259,7 @@ def get_my_challenges(
         .where(
             (ChallengeInvitation.receiver_id == current_user_id) &
             (ChallengeInvitation.status == InvitationStatus.PENDING) &
-            (Challenge.status == ChallengeStatus.ACTIVE)
+            (Challenge.end_date > datetime.now())
         )
     )
     invite_results = session.exec(invites_statement).all()
