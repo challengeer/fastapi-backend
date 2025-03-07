@@ -113,6 +113,8 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
 @router.post("/refresh")
 async def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_session)):
     try:
+        print(request.refresh_token)
+
         payload = jwt.decode(request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "refresh":
             raise HTTPException(
@@ -120,10 +122,14 @@ async def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_
                 detail="Invalid refresh token"
             )
         
+        print(payload, payload.get("sub"))
+        
         user_id = int(payload.get("sub"))
         user = db.exec(
             select(User).where(User.user_id == user_id)
         ).first()
+
+        print(user)
         
         if not user:
             raise HTTPException(
