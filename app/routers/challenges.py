@@ -386,6 +386,7 @@ async def get_challenge_submissions(
     # Check if user is participant or creator
     is_participant = False
     if challenge.creator_id == current_user_id:
+        print("User is creator")
         is_participant = True
     else:
         invitation = session.exec(
