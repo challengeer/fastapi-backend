@@ -386,7 +386,6 @@ async def get_challenge_submissions(
     # Check if user is participant or creator
     is_participant = False
     if challenge.creator_id == current_user_id:
-        print("User is creator")
         is_participant = True
     else:
         invitation = session.exec(
@@ -412,7 +411,7 @@ async def get_challenge_submissions(
         )
     ).first() is not None
 
-    if not has_submitted and challenge.creator_id != current_user_id:
+    if not has_submitted:
         raise HTTPException(
             status_code=403, 
             detail="You must submit your photo before viewing other submissions"
