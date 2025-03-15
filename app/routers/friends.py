@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, select, and_
 from pydantic import BaseModel
+from datetime import datetime, timedelta
+from typing import List
 
 from ..database import get_session
 from ..models.user import User, UserPublic
 from ..models.friend_request import FriendRequest, RequestStatus
 from ..models.friendship import Friendship
 from ..auth import get_current_user_id
+from ..models.challenge_submission import ChallengeSubmission
 
 router = APIRouter(
     prefix="/friends",
@@ -18,6 +21,72 @@ class FriendRequestCreate(BaseModel):
 
 class FriendRequestAction(BaseModel):
     request_id: int
+
+class FriendWithStreak(UserPublic):
+    mutual_streak: int = 0
+    total_mutual_challenges: int = 0
+
+def calculate_mutual_streak(user1_id: int, user2_id: int, session: Session) -> tuple[int, int]:
+    # Get dates where both users completed the same challenges
+    mutual_submissions = session.exec(
+        select(ChallengeSubmission.challenge_id, ChallengeSubmission.submitted_at)
+        .where(ChallengeSubmission.user_id == user1_id)
+        .where(
+            ChallengeSubmission.challenge_id.in_(
+                select(ChallengeSubmission.challenge_id)
+                .where(ChallengeSubmission.user_id == user2_id)
+            )
+        )
+    ).all()
+    
+    user2_submissions = {
+        sub.challenge_id: sub.submitted_at.date()
+        for sub in session.exec(
+            select(ChallengeSubmission)
+            .where(
+                and_(
+                    ChallengeSubmission.user_id == user2_id,
+                    ChallengeSubmission.challenge_id.in_([s.challenge_id for s in mutual_submissions])
+                )
+            )
+        ).all()
+    }
+    
+    # Find dates where both users completed the same challenges
+    mutual_dates = set()
+    for challenge_id, submitted_at in mutual_submissions:
+        user1_date = submitted_at.date()
+        user2_date = user2_submissions[challenge_id]
+        # Only count if both users completed the challenge on the same day or within 1 day
+        if abs((user1_date - user2_date).days) <= 1:
+            mutual_dates.add(user1_date)
+    
+    if not mutual_dates:
+        return 0, 0
+        
+    # Convert to sorted list for streak calculation
+    mutual_dates = sorted(mutual_dates, reverse=True)
+    
+    # Get total mutual challenges
+    total_mutual = len(mutual_dates)
+    
+    # Check if there's mutual activity in the last 3 days
+    today = datetime.now().date()
+    if (today - mutual_dates[0]) > timedelta(days=3):
+        return 0, total_mutual
+        
+    streak = 1
+    allowed_gap = timedelta(days=3)
+    
+    # Calculate streak from mutual completion dates
+    for i in range(1, len(mutual_dates)):
+        gap = mutual_dates[i-1] - mutual_dates[i]
+        if gap <= allowed_gap:
+            streak += 1
+        else:
+            break
+            
+    return streak, total_mutual
 
 @router.post("/add")
 def create_friend_request(
@@ -137,16 +206,35 @@ def reject_friend_request(
     session.refresh(friend_request)
     return friend_request
 
-@router.get("/list", response_model=list[UserPublic])
-def get_friends(session: Session = Depends(get_session), user_id: int = Depends(get_current_user_id)):
+@router.get("/list", response_model=list[FriendWithStreak])
+def get_friends(
+    session: Session = Depends(get_session),
+    user_id: int = Depends(get_current_user_id)
+):
+    # First get all friends
     statement = (
         select(User)
-        .join(Friendship, (Friendship.user2_id == User.user_id) & (Friendship.user1_id == user_id) |
-                   (Friendship.user1_id == User.user_id) & (Friendship.user2_id == user_id))
+        .join(
+            Friendship,
+            (Friendship.user2_id == User.user_id) & (Friendship.user1_id == user_id) |
+            (Friendship.user1_id == User.user_id) & (Friendship.user2_id == user_id)
+        )
     )
     
     friends = session.exec(statement).all()
-    return friends
+    friends_with_streaks = []
+    
+    for friend in friends:
+        # Calculate mutual streak and total mutual challenges
+        mutual_streak, total_mutual = calculate_mutual_streak(user_id, friend.user_id, session)
+        
+        # Create friend response with streak info
+        friend_dict = friend.model_dump()
+        friend_dict["mutual_streak"] = mutual_streak
+        friend_dict["total_mutual_challenges"] = total_mutual
+        friends_with_streaks.append(friend_dict)
+    
+    return friends_with_streaks
 
 class FriendRequestPublic(UserPublic):
     request_id: int
