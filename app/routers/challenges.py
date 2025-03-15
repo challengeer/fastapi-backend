@@ -41,6 +41,10 @@ class UserChallengeStatus(str, Enum):
     INVITED = "invited"
     SUBMITTED = "submitted"
 
+class ParticipantInfo(BaseModel):
+    user: UserPublic
+    has_submitted: bool
+
 class ChallengeResponse(BaseModel):
     challenge_id: int
     creator_id: int
@@ -53,7 +57,7 @@ class ChallengeResponse(BaseModel):
     status: ChallengeStatus
     created_at: datetime
     creator: UserPublic
-    participants: List[UserPublic]
+    participants: List[ParticipantInfo]
     has_new_submissions: bool
     user_status: UserChallengeStatus
 
@@ -544,16 +548,29 @@ def get_challenge_details(
     if not is_participant:
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
-    # Get all accepted participants
+    # Get all accepted participants with their submission status
     participants_query = (
-        select(User)
+        select(User, ChallengeSubmission)
         .join(ChallengeInvitation, ChallengeInvitation.receiver_id == User.user_id)
+        .outerjoin(
+            ChallengeSubmission,
+            (ChallengeSubmission.user_id == User.user_id) &
+            (ChallengeSubmission.challenge_id == challenge_id)
+        )
         .where(
             (ChallengeInvitation.challenge_id == challenge_id) &
             (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
         )
     )
-    participants = session.exec(participants_query).all()
+    participant_results = session.exec(participants_query).all()
+
+    participants = [
+        {
+            "user": user,
+            "has_submitted": submission is not None
+        }
+        for user, submission in participant_results
+    ]
 
     # Check for new submissions
     new_submissions_exist = session.exec(
