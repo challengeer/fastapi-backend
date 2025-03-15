@@ -41,8 +41,7 @@ class UserChallengeStatus(str, Enum):
     INVITED = "invited"
     SUBMITTED = "submitted"
 
-class ParticipantInfo(BaseModel):
-    user: UserPublic
+class ParticipantInfo(UserPublic):
     has_submitted: bool
 
 class ChallengeResponse(BaseModel):
@@ -566,7 +565,7 @@ def get_challenge_details(
 
     participants = [
         {
-            "user": user,
+            **user.model_dump(),  # Spread user fields directly
             "has_submitted": submission is not None
         }
         for user, submission in participant_results
