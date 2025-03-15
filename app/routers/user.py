@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 from enum import Enum
 import uuid
 from PIL import Image
 from io import BytesIO
 import re
+from datetime import datetime
 
 from ..database import get_session
 from ..models.user import User, UserPublic
@@ -15,6 +16,7 @@ from ..models.friend_request import FriendRequest, RequestStatus
 from ..auth import get_current_user_id, validate_username
 from ..s3 import s3_client
 from ..config import S3_BUCKET_NAME
+from ..models.challenge_submission import ChallengeSubmission
 
 router = APIRouter(
     prefix="/user",
@@ -118,7 +120,9 @@ def read_current_user(
 class UserProfile(UserPublic):
     request_id: Optional[int]
     friendship_status: FriendshipStatus
-    
+    challenge_completion_dates: List[datetime] = []
+    total_challenges_completed: int = 0
+
 @router.get("/{user_id}", response_model=UserProfile)
 def read_user(
     user_id: int, 
@@ -146,6 +150,16 @@ def read_user(
         
     user, friendship, request = result
     user_dict = user.model_dump()
+    
+    # Get challenge completion dates and count
+    completion_dates = session.exec(
+        select(ChallengeSubmission.submitted_at)
+        .where(ChallengeSubmission.user_id == user_id)
+        .order_by(ChallengeSubmission.submitted_at.desc())
+    ).all()
+    
+    user_dict["challenge_completion_dates"] = completion_dates
+    user_dict["total_challenges_completed"] = len(completion_dates)
     
     if friendship:
         user_dict["request_id"] = None
