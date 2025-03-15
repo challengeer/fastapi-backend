@@ -531,7 +531,10 @@ def get_challenge_details(
             .where(
                 (ChallengeInvitation.challenge_id == challenge_id) &
                 (ChallengeInvitation.receiver_id == current_user_id) &
-                (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+                (
+                    (ChallengeInvitation.status == InvitationStatus.ACCEPTED) |
+                    (ChallengeInvitation.status == InvitationStatus.PENDING)
+                )
             )
         ).first()
         if invitation:
