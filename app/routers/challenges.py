@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import uuid
 from PIL import Image
 from io import BytesIO
+from enum import Enum
 
 from ..database import get_session
 from ..models.user import User, UserPublic
@@ -83,6 +84,11 @@ class SimpleInviteResponse(ChallengePublic):
 class ChallengesListResponse(BaseModel):
     challenges: List[SimpleChallengeResponse]
     invitations: List[SimpleInviteResponse]
+
+class UserChallengeStatus(str, Enum):
+    PARTICIPANT = "participant"
+    INVITED = "invited"
+    SUBMITTED = "submitted"
 
 @router.post("/create", response_model=Challenge)
 def create_challenge(
@@ -558,9 +564,41 @@ def get_challenge_details(
         )
     ).first() is not None
 
+    # Determine user's status
+    user_status = None
+    
+    # Check if user has submitted
+    submission = session.exec(
+        select(ChallengeSubmission)
+        .where(
+            (ChallengeSubmission.challenge_id == challenge_id) &
+            (ChallengeSubmission.user_id == current_user_id)
+        )
+    ).first()
+    
+    if submission:
+        user_status = UserChallengeStatus.SUBMITTED
+    else:
+        # Check invitation status
+        invitation = session.exec(
+            select(ChallengeInvitation)
+            .where(
+                (ChallengeInvitation.challenge_id == challenge_id) &
+                (ChallengeInvitation.receiver_id == current_user_id)
+            )
+        ).first()
+        
+        if invitation and invitation.status == InvitationStatus.ACCEPTED:
+            user_status = UserChallengeStatus.PARTICIPANT
+        elif invitation and invitation.status == InvitationStatus.PENDING:
+            user_status = UserChallengeStatus.INVITED
+        elif challenge.creator_id != current_user_id:  # Not creator and no invitation
+            raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
+
     challenge_dict = challenge.model_dump()
     challenge_dict["creator"] = creator
     challenge_dict["participants"] = participants
     challenge_dict["has_new_submissions"] = new_submissions_exist
+    challenge_dict["user_status"] = user_status
 
     return challenge_dict
