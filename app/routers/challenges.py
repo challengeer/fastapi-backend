@@ -36,6 +36,11 @@ class ChallengeInviteCreate(BaseModel):
 class ChallengeInviteAction(BaseModel):
     invitation_id: int
 
+class UserChallengeStatus(str, Enum):
+    PARTICIPANT = "participant"
+    INVITED = "invited"
+    SUBMITTED = "submitted"
+
 class ChallengeResponse(BaseModel):
     challenge_id: int
     creator_id: int
@@ -50,6 +55,7 @@ class ChallengeResponse(BaseModel):
     creator: UserPublic
     participants: List[UserPublic]
     has_new_submissions: bool
+    user_status: UserChallengeStatus
 
 class SubmissionResponse(BaseModel):
     submission_id: int
@@ -84,11 +90,6 @@ class SimpleInviteResponse(ChallengePublic):
 class ChallengesListResponse(BaseModel):
     challenges: List[SimpleChallengeResponse]
     invitations: List[SimpleInviteResponse]
-
-class UserChallengeStatus(str, Enum):
-    PARTICIPANT = "participant"
-    INVITED = "invited"
-    SUBMITTED = "submitted"
 
 @router.post("/create", response_model=Challenge)
 def create_challenge(
