@@ -7,7 +7,7 @@ import uuid
 from PIL import Image
 from io import BytesIO
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..database import get_session
 from ..models.user import User, UserPublic
@@ -122,6 +122,32 @@ class UserProfile(UserPublic):
     friendship_status: FriendshipStatus
     challenge_completion_dates: List[datetime] = []
     total_challenges_completed: int = 0
+    current_streak: int = 0
+
+def calculate_streak(completion_dates: List[datetime]) -> int:
+    if not completion_dates:
+        return 0
+        
+    # Convert to dates only (ignore time) and sort in descending order
+    dates = sorted([d.date() for d in completion_dates], reverse=True)
+    
+    # Check if there's activity today or in the last 3 days
+    today = datetime.now().date()
+    if (today - dates[0]) > timedelta(days=3):
+        return 0  # Streak is broken if no activity in last 3 days
+        
+    streak = 1
+    allowed_gap = timedelta(days=3)  # Maximum allowed gap between challenges
+    
+    # Start from the second most recent date
+    for i in range(1, len(dates)):
+        gap = dates[i-1] - dates[i]
+        if gap <= allowed_gap:
+            streak += 1
+        else:
+            break
+            
+    return streak
 
 @router.get("/{user_id}", response_model=UserProfile)
 def read_user(
@@ -160,6 +186,7 @@ def read_user(
     
     user_dict["challenge_completion_dates"] = completion_dates
     user_dict["total_challenges_completed"] = len(completion_dates)
+    user_dict["current_streak"] = calculate_streak(completion_dates)
     
     if friendship:
         user_dict["request_id"] = None
