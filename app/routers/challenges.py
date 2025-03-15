@@ -59,6 +59,7 @@ class ChallengeResponse(BaseModel):
     participants: List[ParticipantInfo]
     has_new_submissions: bool
     user_status: UserChallengeStatus
+    invitation_id: Optional[int] = None
 
 class SubmissionResponse(BaseModel):
     submission_id: int
@@ -584,8 +585,9 @@ def get_challenge_details(
         )
     ).first() is not None
 
-    # Determine user's status
+    # Determine user's status and get invitation_id if needed
     user_status = None
+    invitation_id = None
     
     # Check if user has submitted
     submission = session.exec(
@@ -612,6 +614,7 @@ def get_challenge_details(
             user_status = UserChallengeStatus.PARTICIPANT
         elif invitation and invitation.status == InvitationStatus.PENDING:
             user_status = UserChallengeStatus.INVITED
+            invitation_id = invitation.invitation_id  # Store invitation_id when status is INVITED
         elif challenge.creator_id != current_user_id:  # Not creator and no invitation
             raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
@@ -620,5 +623,6 @@ def get_challenge_details(
     challenge_dict["participants"] = participants
     challenge_dict["has_new_submissions"] = new_submissions_exist
     challenge_dict["user_status"] = user_status
+    challenge_dict["invitation_id"] = invitation_id  # Add invitation_id to response
 
     return challenge_dict
