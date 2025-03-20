@@ -10,6 +10,7 @@ from ..models.friend_request import FriendRequest, RequestStatus
 from ..models.friendship import Friendship
 from ..services.auth import get_current_user_id
 from ..models.challenge_submission import ChallengeSubmission
+from ..services.notifications import NotificationService
 
 router = APIRouter(
     prefix="/friends",
@@ -154,17 +155,96 @@ def create_friend_request(
     session.refresh(friend_request)
     return friend_request
 
-@router.put("/accept")
-def accept_friend_request(
+@router.post("/request", response_model=FriendRequest)
+async def send_friend_request(
+    request: FriendRequestCreate,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Check if not self
+    if current_user_id == request.receiver_id:
+        raise HTTPException(status_code=400, detail="Cannot send friend request to yourself")
+    
+    # Check if user exists
+    receiver = session.get(User, request.receiver_id)
+    if not receiver:
+        raise HTTPException(status_code=404, detail="Receiver not found")
+
+    # Check if any friend request exists in either direction
+    statement = select(FriendRequest).where(
+        ((FriendRequest.sender_id == current_user_id) & (FriendRequest.receiver_id == request.receiver_id)) |
+        ((FriendRequest.sender_id == request.receiver_id) & (FriendRequest.receiver_id == current_user_id))
+    )
+    existing_request = session.exec(statement).first()
+    
+    if existing_request:
+        # If there's a pending request from the other user, accept it automatically
+        if (existing_request.status == RequestStatus.PENDING and 
+            existing_request.receiver_id == current_user_id):
+            existing_request.status = RequestStatus.ACCEPTED
+            
+            # Create friendship record
+            new_friendship = Friendship(
+                user1_id=existing_request.sender_id,
+                user2_id=existing_request.receiver_id
+            )
+            session.add(new_friendship)
+            session.add(existing_request)
+            session.commit()
+            session.refresh(existing_request)
+            return existing_request
+            
+        elif existing_request.status != RequestStatus.REJECTED:
+            raise HTTPException(status_code=400, detail="Active friend request already exists")
+            
+        # If the request was rejected and the original sender is trying again, prevent it
+        if existing_request.sender_id == current_user_id:
+            raise HTTPException(status_code=400, detail="Cannot send another request after being rejected")
+            
+        # Only allow the person who rejected to send a new request
+        existing_request.status = RequestStatus.PENDING
+        existing_request.sender_id = request.receiver_id
+        existing_request.receiver_id = current_user_id
+        session.add(existing_request)
+        session.commit()
+        session.refresh(existing_request)
+        return existing_request
+
+    # Create new friend request if none exists
+    new_request = FriendRequest(
+        sender_id=current_user_id,
+        receiver_id=request.receiver_id
+    )
+    session.add(new_request)
+    
+    # Get sender and receiver info
+    sender = session.get(User, current_user_id)
+    receiver = session.get(User, request.receiver_id)
+    
+    # Send notification to receiver if they have FCM token
+    if receiver.fcm_token:
+        notification_service = NotificationService()
+        await notification_service.send_friend_request(
+            fcm_token=receiver.fcm_token,
+            sender_name=sender.display_name,
+            sender_id=sender.user_id
+        )
+    
+    session.commit()
+    session.refresh(new_request)
+    return new_request
+
+@router.post("/accept", response_model=Friendship)
+async def accept_friend_request(
     request: FriendRequestAction,
     session: Session = Depends(get_session),
-    user_id: int = Depends(get_current_user_id)
+    current_user_id: int = Depends(get_current_user_id)
 ):
     friend_request = session.get(FriendRequest, request.request_id)
     if not friend_request:
         raise HTTPException(status_code=404, detail="Friend request not found")
     
-    if friend_request.receiver_id != user_id:
+    if friend_request.receiver_id != current_user_id:
         raise HTTPException(status_code=403, detail="Can only accept your own friend requests")
     
     if friend_request.status != RequestStatus.PENDING:
@@ -174,15 +254,28 @@ def accept_friend_request(
     
     # Create friendship record
     new_friendship = Friendship(
-        user1_id=friend_request.sender_id,
-        user2_id=friend_request.receiver_id
+        user1_id=min(current_user_id, friend_request.sender_id),
+        user2_id=max(current_user_id, friend_request.sender_id)
     )
     session.add(new_friendship)
+    
+    # Get user info
+    accepter = session.get(User, current_user_id)
+    sender = session.get(User, friend_request.sender_id)
+    
+    # Send notification to request sender
+    if sender.fcm_token:
+        notification_service = NotificationService()
+        await notification_service.send_friend_accept(
+            fcm_token=sender.fcm_token,
+            accepter_name=accepter.display_name,
+            accepter_id=accepter.user_id
+        )
     
     session.add(friend_request)
     session.commit()
     session.refresh(friend_request)
-    return friend_request
+    return new_friendship
 
 @router.put("/reject")
 def reject_friend_request(

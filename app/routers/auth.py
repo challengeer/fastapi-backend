@@ -6,8 +6,9 @@ from jose import jwt
 from google.oauth2 import id_token
 from google.auth.transport import requests
 import secrets
+from typing import Optional
 
-from ..services.auth import create_token, normalize_username, validate_username
+from ..services.auth import create_token, normalize_username, validate_username, create_access_token, verify_password, get_current_user_id
 from ..services.database import get_session
 from ..models.user import User, UserPublic
 from ..models.verification_code import VerificationCode, VerificationCodeCreate, VerificationCodeVerify
@@ -20,6 +21,7 @@ router = APIRouter(
 
 class GoogleAuthRequest(BaseModel):
     token: str
+    fcm_token: Optional[str] = None
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
@@ -27,6 +29,9 @@ class RefreshTokenRequest(BaseModel):
 class UsernameCheckResponse(BaseModel):
     username: str
     exists: bool
+
+class UpdateFCMTokenRequest(BaseModel):
+    fcm_token: str
 
 def create_tokens(user_id: int):
     access_token = create_token(
@@ -86,6 +91,7 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
                 profile_picture=idinfo.get("picture"),
                 email=idinfo["email"],
                 google_id=idinfo["sub"],
+                fcm_token=request.fcm_token
             )
             db.add(user)
             db.commit()
@@ -213,3 +219,34 @@ def check_username_exists(username: str, session: Session = Depends(get_session)
         username=validated_username,
         exists=existing_user is not None
     )
+
+@router.put("/fcm-token")
+async def update_fcm_token(
+    request: UpdateFCMTokenRequest,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    """Update FCM token for push notifications"""
+    user = session.get(User, current_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.fcm_token = request.fcm_token
+    session.add(user)
+    session.commit()
+    return {"message": "FCM token updated successfully"}
+
+@router.delete("/fcm-token")
+async def remove_fcm_token(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    """Remove FCM token when logging out"""
+    user = session.get(User, current_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.fcm_token = None
+    session.add(user)
+    session.commit()
+    return {"message": "FCM token removed successfully"}

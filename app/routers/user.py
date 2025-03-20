@@ -17,11 +17,16 @@ from ..services.auth import get_current_user_id, validate_username
 from ..services.s3 import s3_client
 from ..config import S3_BUCKET_NAME
 from ..models.challenge_submission import ChallengeSubmission
+from ..services.notifications import NotificationService
+from sqlalchemy.orm import joinedload
 
 router = APIRouter(
     prefix="/user",
     tags=["User"]
 )
+
+# Initialize notification service
+notification_service = NotificationService()
 
 class FriendshipStatus(str, Enum):
     FRIENDS = "friends"
@@ -213,7 +218,7 @@ class UpdateDisplayNameRequest(BaseModel):
     display_name: str
 
 @router.put("/username", response_model=UserPublic)
-def update_username(
+async def update_username(
     request: UpdateUsernameRequest,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
@@ -239,7 +244,7 @@ def update_username(
     return user
 
 @router.put("/display-name", response_model=UserPublic)
-def update_display_name(
+async def update_display_name(
     request: UpdateDisplayNameRequest,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)

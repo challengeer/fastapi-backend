@@ -9,6 +9,8 @@ class NotificationType(str, Enum):
     CHALLENGE_INVITE = "challenge_invite"
     CHALLENGE_SUBMISSION = "challenge_submission"
     CHALLENGE_ENDING = "challenge_ending"
+    FRIEND_REQUEST = "friend_request"
+    FRIEND_ACCEPT = "friend_accept"
 
 class NotificationService:
     def __init__(self):
@@ -93,5 +95,37 @@ class NotificationService:
             data={
                 "type": NotificationType.CHALLENGE_ENDING,
                 "challenge_id": str(challenge_id)
+            }
+        )
+
+    async def send_friend_request(
+        self,
+        fcm_token: str,
+        sender_name: str,
+        sender_id: int
+    ):
+        return await self.send_notification(
+            fcm_token=fcm_token,
+            title="New Friend Request",
+            body=f"{sender_name} sent you a friend request",
+            data={
+                "type": NotificationType.FRIEND_REQUEST,
+                "sender_id": str(sender_id)
+            }
+        )
+
+    async def send_friend_accept(
+        self,
+        fcm_token: str,
+        accepter_name: str,
+        accepter_id: int
+    ):
+        return await self.send_notification(
+            fcm_token=fcm_token,
+            title="Friend Request Accepted",
+            body=f"{accepter_name} accepted your friend request",
+            data={
+                "type": NotificationType.FRIEND_ACCEPT,
+                "user_id": str(accepter_id)
             }
         ) 
