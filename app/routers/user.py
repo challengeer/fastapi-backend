@@ -9,12 +9,12 @@ from io import BytesIO
 import re
 from datetime import datetime, timedelta
 
-from ..database import get_session
+from ..services.database import get_session
 from ..models.user import User, UserPublic
 from ..models.friendship import Friendship
 from ..models.friend_request import FriendRequest, RequestStatus
-from ..auth import get_current_user_id, validate_username
-from ..s3 import s3_client
+from ..services.auth import get_current_user_id, validate_username
+from ..services.s3 import s3_client
 from ..config import S3_BUCKET_NAME
 from ..models.challenge_submission import ChallengeSubmission
 

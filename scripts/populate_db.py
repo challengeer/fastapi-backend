@@ -13,7 +13,7 @@ from app.models.friend_request import FriendRequest, RequestStatus
 from app.models.friendship import Friendship
 
 from app.config import DATABASE_URL, S3_URL
-from app.database import create_db_and_tables
+from app.services.database import create_db_and_tables
 engine = create_engine(DATABASE_URL)
 
 # Test data

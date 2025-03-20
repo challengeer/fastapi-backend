@@ -7,8 +7,8 @@ from google.oauth2 import id_token
 from google.auth.transport import requests
 import secrets
 
-from ..auth import create_token, normalize_username, validate_username
-from ..database import get_session
+from ..services.auth import create_token, normalize_username, validate_username
+from ..services.database import get_session
 from ..models.user import User, UserPublic
 from ..models.verification_code import VerificationCode, VerificationCodeCreate, VerificationCodeVerify
 from ..config import GOOGLE_CLIENT_ID, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS

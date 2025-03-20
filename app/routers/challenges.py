@@ -8,14 +8,14 @@ from PIL import Image
 from io import BytesIO
 from enum import Enum
 
-from ..database import get_session
+from ..services.database import get_session
 from ..models.user import User, UserPublic
 from ..models.challenge import Challenge, ChallengeStatus
 from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.challenge_submission import ChallengeSubmission
 from ..models.submission_view import SubmissionView
-from ..auth import get_current_user_id
-from ..s3 import s3_client
+from ..services.auth import get_current_user_id
+from ..services.s3 import s3_client
 from ..config import S3_BUCKET_NAME
 
 router = APIRouter(

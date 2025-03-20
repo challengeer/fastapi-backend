@@ -1,7 +1,7 @@
 from jose import jwt
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, HTTPException, status
-from .config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from ..config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 from fastapi.security import OAuth2PasswordBearer
 from typing import Annotated
 import unicodedata

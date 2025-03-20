@@ -1,0 +1,97 @@
+import firebase_admin
+from firebase_admin import credentials, messaging
+from typing import Optional
+from enum import Enum
+
+from app.config import FIREBASE_CREDENTIALS_JSON
+
+class NotificationType(str, Enum):
+    CHALLENGE_INVITE = "challenge_invite"
+    CHALLENGE_SUBMISSION = "challenge_submission"
+    CHALLENGE_ENDING = "challenge_ending"
+
+class NotificationService:
+    def __init__(self):
+        cred = credentials.Certificate(FIREBASE_CREDENTIALS_JSON)
+        
+        # Initialize Firebase Admin SDK if not already initialized
+        try:
+            firebase_admin.get_app()
+        except ValueError:
+            firebase_admin.initialize_app(cred)
+
+    async def send_notification(
+        self,
+        fcm_token: str,
+        title: str,
+        body: str,
+        data: Optional[dict] = None
+    ) -> bool:
+        try:
+            message = messaging.Message(
+                notification=messaging.Notification(
+                    title=title,
+                    body=body,
+                ),
+                data=data or {},
+                token=fcm_token,
+            )
+            
+            messaging.send(message)
+            return True
+        except Exception as e:
+            print(f"Error sending notification: {e}")
+            return False
+
+    async def send_challenge_invite(
+        self,
+        fcm_token: str,
+        sender_name: str,
+        challenge_title: str,
+        challenge_id: int,
+        invitation_id: int
+    ):
+        return await self.send_notification(
+            fcm_token=fcm_token,
+            title="New Challenge Invitation!",
+            body=f"{sender_name} invited you to '{challenge_title}'",
+            data={
+                "type": NotificationType.CHALLENGE_INVITE,
+                "challenge_id": str(challenge_id),
+                "invitation_id": str(invitation_id)
+            }
+        )
+
+    async def send_challenge_submission(
+        self,
+        fcm_token: str,
+        submitter_name: str,
+        challenge_title: str,
+        challenge_id: int
+    ):
+        return await self.send_notification(
+            fcm_token=fcm_token,
+            title="New Challenge Submission!",
+            body=f"{submitter_name} submitted to '{challenge_title}'",
+            data={
+                "type": NotificationType.CHALLENGE_SUBMISSION,
+                "challenge_id": str(challenge_id)
+            }
+        )
+
+    async def send_challenge_ending(
+        self,
+        fcm_token: str,
+        challenge_title: str,
+        challenge_id: int,
+        hours_left: int
+    ):
+        return await self.send_notification(
+            fcm_token=fcm_token,
+            title="Challenge Ending Soon!",
+            body=f"'{challenge_title}' ends in {hours_left} hours",
+            data={
+                "type": NotificationType.CHALLENGE_ENDING,
+                "challenge_id": str(challenge_id)
+            }
+        ) 
