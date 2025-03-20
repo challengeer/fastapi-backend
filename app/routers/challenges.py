@@ -17,11 +17,15 @@ from ..models.submission_view import SubmissionView
 from ..services.auth import get_current_user_id
 from ..services.s3 import s3_client
 from ..config import S3_BUCKET_NAME
+from ..services.notifications import NotificationService
 
 router = APIRouter(
     prefix="/challenges",
     tags=["Challenges"]
 )
+
+# Initialize notification service
+notification_service = NotificationService()
 
 class ChallengeCreate(BaseModel):
     title: str
@@ -119,7 +123,7 @@ def create_challenge(
     return new_challenge
 
 @router.post("/invite")
-def invite_to_challenge(
+async def invite_to_challenge(
     invite: ChallengeInviteCreate,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
@@ -135,11 +139,15 @@ def invite_to_challenge(
     if challenge.status != ChallengeStatus.ACTIVE:
         raise HTTPException(status_code=400, detail="Can only invite to active challenges")
 
-    # Create invitations
+    # Get sender's name
+    sender = session.get(User, current_user_id)
+    
+    # Create invitations and send notifications
     invitations = []
     for receiver_id in invite.receiver_ids:
-        # Skip if user doesn't exist
-        if not session.get(User, receiver_id):
+        # Get receiver with FCM token
+        receiver = session.get(User, receiver_id)
+        if not receiver:
             continue
             
         # Skip if invitation already exists
@@ -159,7 +167,18 @@ def invite_to_challenge(
             receiver_id=receiver_id
         )
         session.add(invitation)
+        session.flush()  # Get invitation ID
         invitations.append(invitation)
+
+        # Send notification if receiver has FCM token
+        if receiver.fcm_token:
+            await notification_service.send_challenge_invite(
+                fcm_token=receiver.fcm_token,
+                sender_name=sender.name,
+                challenge_title=challenge.title,
+                challenge_id=challenge.challenge_id,
+                invitation_id=invitation.invitation_id
+            )
 
     session.commit()
     return {"message": f"Sent {len(invitations)} invitations"}
@@ -381,6 +400,31 @@ async def submit_challenge_photo(
     session.add(submission)
     session.commit()
     session.refresh(submission)
+
+    # Get submitter and challenge info
+    submitter = session.get(User, current_user_id)
+    
+    # Get all participants with their FCM tokens
+    participants = session.exec(
+        select(User)
+        .join(ChallengeInvitation)
+        .where(
+            (ChallengeInvitation.challenge_id == challenge_id) &
+            (ChallengeInvitation.status == InvitationStatus.ACCEPTED) &
+            (User.user_id != current_user_id)  # Don't notify submitter
+        )
+    ).all()
+
+    # Send notifications to all participants
+    for participant in participants:
+        if participant.fcm_token:
+            await notification_service.send_challenge_submission(
+                fcm_token=participant.fcm_token,
+                submitter_name=submitter.name,
+                challenge_title=challenge.title,
+                challenge_id=challenge_id
+            )
+
     return submission
 
 @router.get("/{challenge_id}/submissions", response_model=List[SubmissionResponse])

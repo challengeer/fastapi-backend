@@ -14,6 +14,7 @@ class UserBase(SQLModel):
 
 class User(UserBase, table=True):
     user_id: Optional[int] = Field(default=None, primary_key=True)
+    fcm_token: Optional[str] = Field(default=None, index=True)
 
 class UserPublic(SQLModel):
     user_id: int
