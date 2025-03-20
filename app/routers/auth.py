@@ -8,7 +8,7 @@ from google.auth.transport import requests
 import secrets
 from typing import Optional
 
-from ..services.auth import create_token, normalize_username, validate_username, create_access_token, verify_password, get_current_user_id
+from ..services.auth import create_token, normalize_username, validate_username, get_current_user_id
 from ..services.database import get_session
 from ..models.user import User, UserPublic
 from ..models.verification_code import VerificationCode, VerificationCodeCreate, VerificationCodeVerify
