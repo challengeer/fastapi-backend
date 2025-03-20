@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-import os
+import os, json
 
 # Load environment variables from a .env file
 load_dotenv()
@@ -27,3 +27,7 @@ S3_URL = f"https://{S3_BUCKET_NAME}.s3.{S3_REGION}.amazonaws.com"
 
 # Build the database URL
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+# Firebase Configuration
+FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS")
+FIREBASE_CREDENTIALS_JSON = json.loads(FIREBASE_CREDENTIALS)

@@ -9,3 +9,4 @@ boto3
 pillow
 python-jose[cryptography]
 google-auth
+firebase-admin
