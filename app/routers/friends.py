@@ -155,7 +155,7 @@ def create_friend_request(
     session.refresh(friend_request)
     return friend_request
 
-@router.post("/request", response_model=FriendRequest)
+@router.put("/request", response_model=FriendRequest)
 async def send_friend_request(
     request: FriendRequestCreate,
     session: Session = Depends(get_session),
@@ -234,7 +234,7 @@ async def send_friend_request(
     session.refresh(new_request)
     return new_request
 
-@router.post("/accept", response_model=Friendship)
+@router.put("/accept", response_model=Friendship)
 async def accept_friend_request(
     request: FriendRequestAction,
     session: Session = Depends(get_session),
