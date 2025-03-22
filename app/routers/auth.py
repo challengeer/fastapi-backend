@@ -97,13 +97,9 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             db.commit()
             db.refresh(user)
         else:
-            # Update existing user's Google info
-            if not user.google_id:
-                user.google_id = idinfo["sub"]
-                user.email = idinfo["email"]
-                user.fcm_token = request.fcm_token
-                db.commit()
-                db.refresh(user)
+            user.fcm_token = request.fcm_token
+            db.commit()
+            db.refresh(user)
 
         tokens = create_tokens(user.user_id)
         return {
