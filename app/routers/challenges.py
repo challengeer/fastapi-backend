@@ -407,7 +407,7 @@ async def submit_challenge_photo(
     # Get all participants with their FCM tokens
     participants = session.exec(
         select(User)
-        .join(ChallengeInvitation)
+        .join(ChallengeInvitation, User.user_id == ChallengeInvitation.receiver_id)
         .where(
             (ChallengeInvitation.challenge_id == challenge_id) &
             (ChallengeInvitation.status == InvitationStatus.ACCEPTED) &
