@@ -13,4 +13,4 @@ class SubmissionView(SubmissionViewBase, table=True):
     class Config:
         sa_column_kwargs = {
             "submission_id,viewer_id": {"unique": True}  # Track each submission view once per user
-        } 
+        }

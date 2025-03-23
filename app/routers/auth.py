@@ -2,36 +2,21 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 from pydantic import BaseModel
 from datetime import datetime, timezone,timedelta
-from jose import jwt
 from google.oauth2 import id_token
 from google.auth.transport import requests
 import secrets
-from typing import Optional
 
-from ..services.auth import create_token, normalize_username, validate_username, get_current_user_id
+from ..services.auth import create_token, verify_token, normalize_username, validate_username, get_current_user_id
 from ..services.database import get_session
 from ..models.user import User, UserPublic
 from ..models.verification_code import VerificationCode, VerificationCodeCreate, VerificationCodeVerify
-from ..config import GOOGLE_CLIENT_ID, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+from ..config import GOOGLE_CLIENT_ID, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+from ..models.device import Device, DeviceCreate, DeviceUpdate
 
 router = APIRouter(
     prefix="/auth",
     tags=["Authentication"]
 )
-
-class GoogleAuthRequest(BaseModel):
-    token: str
-    fcm_token: Optional[str] = None
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
-
-class UsernameCheckResponse(BaseModel):
-    username: str
-    exists: bool
-
-class UpdateFCMTokenRequest(BaseModel):
-    fcm_token: str
 
 def create_tokens(user_id: int):
     access_token = create_token(
@@ -59,7 +44,16 @@ def generate_username(first_name: str, last_name: str) -> str:
     
     return username
 
-@router.post("/google")
+
+class GoogleAuthRequest(DeviceCreate):
+    token: str
+
+class GoogleAuthResponse(BaseModel):
+    user: UserPublic
+    access_token: str
+    refresh_token: str
+
+@router.post("/google", response_model=GoogleAuthResponse)
 async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_session)):
     try:
         idinfo = id_token.verify_oauth2_token(
@@ -74,6 +68,7 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             )
         ).first()
 
+        # If user doesn't exist, create a new user
         if not user:
             # Get first and last name from Google token
             first_name = idinfo.get("given_name", "user")
@@ -96,13 +91,29 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             db.add(user)
             db.commit()
             db.refresh(user)
-        else:
-            # Update FCM token for existing user if provided
-            if request.fcm_token:
-                user.fcm_token = request.fcm_token
-                db.add(user)
+
+        # Handle device registration
+        if request.fcm_token:
+            # Check if device with this FCM token exists
+            existing_device = db.exec(
+                select(Device).where(
+                    (Device.user_id == user.user_id) &
+                    (Device.fcm_token == request.fcm_token)
+                )
+            ).first()
+
+            if not existing_device:
+                # Create new device
+                device = Device(
+                    user_id=user.user_id,
+                    fcm_token=request.fcm_token,
+                    brand=request.brand,
+                    model_name=request.model,
+                    os_name=request.os,
+                    os_version=request.version
+                )
+                db.add(device)
                 db.commit()
-                db.refresh(user)
 
         tokens = create_tokens(user.user_id)
         return {
@@ -116,46 +127,62 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             detail="Invalid Google token"
         )
 
-@router.post("/refresh")
-async def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_session)):
-    try:
-        print(request.refresh_token)
 
-        payload = jwt.decode(request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
-        if payload.get("type") != "refresh":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token"
+class LogoutRequest(BaseModel):
+    fcm_token: str | None = None
+
+@router.post("/logout")
+async def logout(
+    request: LogoutRequest,
+    current_user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_session)
+):
+    if request.fcm_token:
+        # Remove the device with matching FCM token for this user
+        device = db.exec(
+            select(Device).where(
+                (Device.user_id == current_user_id) &
+                (Device.fcm_token == request.fcm_token)
             )
-        
-        print(payload, payload.get("sub"))
-        
-        user_id = int(payload.get("sub"))
-        user = db.exec(
-            select(User).where(User.user_id == user_id)
         ).first()
-
-        print(user)
         
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
+        if device:
+            db.delete(device)
+            db.commit()
+    
+    return {"message": "Logged out successfully"}
 
-        # Generate new tokens
-        return create_tokens(user.user_id)
 
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token has expired"
-        )
-    except jwt.JWTError:
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+class RefreshTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+
+@router.post("/refresh", response_model=RefreshTokenResponse)
+async def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_session)):
+    payload = verify_token(request.refresh_token)
+    if payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token"
         )
+    
+    user_id = int(payload.get("sub"))
+    user = db.exec(
+        select(User).where(User.user_id == user_id)
+    ).first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # Generate new tokens
+    return create_tokens(user.user_id)
+
 
 @router.post("/verify-phone")
 def create_verification_code(request: VerificationCodeCreate, session: Session = Depends(get_session)):
@@ -187,6 +214,7 @@ def create_verification_code(request: VerificationCodeCreate, session: Session =
     session.commit()
     return {"message": "Verification code created", "phone_number": request.phone_number}
 
+
 @router.post("/verify-phone/confirm")
 def verify_code(request: VerificationCodeVerify, session: Session = Depends(get_session)):
     verification_code = session.get(VerificationCode, request.phone_number)
@@ -210,6 +238,11 @@ def verify_code(request: VerificationCodeVerify, session: Session = Depends(get_
 
     return {"message": "Verification successful"}
 
+
+class UsernameCheckResponse(BaseModel):
+    username: str
+    exists: bool
+
 @router.get("/check-username", response_model=UsernameCheckResponse)
 def check_username_exists(username: str, session: Session = Depends(get_session)):
     validated_username = validate_username(username)
@@ -219,34 +252,3 @@ def check_username_exists(username: str, session: Session = Depends(get_session)
         username=validated_username,
         exists=existing_user is not None
     )
-
-@router.put("/fcm-token")
-async def update_fcm_token(
-    request: UpdateFCMTokenRequest,
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    """Update FCM token for push notifications"""
-    user = session.get(User, current_user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    user.fcm_token = request.fcm_token
-    session.add(user)
-    session.commit()
-    return {"message": "FCM token updated successfully"}
-
-@router.delete("/fcm-token")
-async def remove_fcm_token(
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    """Remove FCM token when logging out"""
-    user = session.get(User, current_user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    user.fcm_token = None
-    session.add(user)
-    session.commit()
-    return {"message": "FCM token removed successfully"}
