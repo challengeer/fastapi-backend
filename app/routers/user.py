@@ -14,7 +14,7 @@ from ..models.user import User, UserPublic
 from ..models.friendship import Friendship
 from ..models.friend_request import FriendRequest, RequestStatus
 from ..services.auth import get_current_user_id, validate_username
-from ..services.s3 import s3_service
+# from ..services.s3 import s3_service
 from ..config import S3_BUCKET_NAME
 from ..models.challenge_submission import ChallengeSubmission
 from ..services.notification import NotificationService
