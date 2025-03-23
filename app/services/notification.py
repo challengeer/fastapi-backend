@@ -98,13 +98,15 @@ class NotificationService:
 
     async def send_challenge_submission(
         self,
-        fcm_token: str,
+        db: Session,
+        user_id: int,
         submitter_name: str,
         challenge_title: str,
         challenge_id: int
     ):
-        return await self.send_notification(
-            fcm_token=fcm_token,
+        return await self.send_notification_to_user(
+            db=db,
+            user_id=user_id,
             title="New Challenge Submission!",
             body=f"{submitter_name} submitted to '{challenge_title}'",
             data={
@@ -115,13 +117,15 @@ class NotificationService:
 
     async def send_challenge_ending(
         self,
-        fcm_token: str,
+        db: Session,
+        user_id: int,
         challenge_title: str,
         challenge_id: int,
         hours_left: int
     ):
-        return await self.send_notification(
-            fcm_token=fcm_token,
+        return await self.send_notification_to_user(
+            db=db,
+            user_id=user_id,
             title="Challenge Ending Soon!",
             body=f"'{challenge_title}' ends in {hours_left} hours",
             data={
@@ -132,12 +136,14 @@ class NotificationService:
 
     async def send_friend_request(
         self,
-        fcm_token: str,
+        db: Session,
+        user_id: int,
         sender_name: str,
         sender_id: int
     ):
-        return await self.send_notification(
-            fcm_token=fcm_token,
+        return await self.send_notification_to_user(
+            db=db,
+            user_id=user_id,
             title="New Friend Request",
             body=f"{sender_name} sent you a friend request",
             data={
@@ -148,12 +154,14 @@ class NotificationService:
 
     async def send_friend_accept(
         self,
-        fcm_token: str,
-        accepter_name: str,
+        db: Session,
+        user_id: int,
+        accepter_name: str, 
         accepter_id: int
     ):
-        return await self.send_notification(
-            fcm_token=fcm_token,
+        return await self.send_notification_to_user(
+            db=db,
+            user_id=user_id,
             title="Friend Request Accepted",
             body=f"{accepter_name} accepted your friend request",
             data={

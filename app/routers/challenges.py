@@ -173,7 +173,8 @@ async def invite_to_challenge(
         # Send notification if receiver has FCM token
         if receiver.fcm_token:
             await notification_service.send_challenge_invite(
-                fcm_token=receiver.fcm_token,
+                db=session,
+                user_id=receiver.user_id,
                 sender_name=sender.display_name,
                 challenge_title=challenge.title,
                 challenge_id=challenge.challenge_id,
@@ -419,7 +420,8 @@ async def submit_challenge_photo(
     for participant in participants:
         if participant.fcm_token:
             await notification_service.send_challenge_submission(
-                fcm_token=participant.fcm_token,
+                db=session,
+                user_id=participant.user_id,
                 submitter_name=submitter.display_name,
                 challenge_title=challenge.title,
                 challenge_id=challenge_id

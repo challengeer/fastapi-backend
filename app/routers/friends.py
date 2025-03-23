@@ -17,6 +17,9 @@ router = APIRouter(
     tags=["Friends"]
 )
 
+# Initialize notification service
+notification_service = NotificationService()
+
 class FriendRequestCreate(BaseModel):
     receiver_id: int
 
@@ -223,9 +226,9 @@ async def send_friend_request(
     
     # Send notification to receiver if they have FCM token
     if receiver.fcm_token:
-        notification_service = NotificationService()
         await notification_service.send_friend_request(
-            fcm_token=receiver.fcm_token,
+            db=session,
+            user_id=receiver.user_id,
             sender_name=sender.display_name,
             sender_id=sender.user_id
         )
@@ -265,9 +268,9 @@ async def accept_friend_request(
     
     # Send notification to request sender
     if sender.fcm_token:
-        notification_service = NotificationService()
         await notification_service.send_friend_accept(
-            fcm_token=sender.fcm_token,
+            db=session,
+            user_id=sender.user_id,
             accepter_name=accepter.display_name,
             accepter_id=accepter.user_id
         )
