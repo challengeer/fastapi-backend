@@ -17,7 +17,7 @@ from ..services.auth import get_current_user_id, validate_username
 from ..services.s3 import s3_client
 from ..config import S3_BUCKET_NAME
 from ..models.challenge_submission import ChallengeSubmission
-from ..services.notifications import NotificationService
+from ..services.notification import NotificationService
 from sqlalchemy.orm import joinedload
 
 router = APIRouter(

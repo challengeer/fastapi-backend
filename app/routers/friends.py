@@ -10,7 +10,7 @@ from ..models.friend_request import FriendRequest, RequestStatus
 from ..models.friendship import Friendship
 from ..services.auth import get_current_user_id
 from ..models.challenge_submission import ChallengeSubmission
-from ..services.notifications import NotificationService
+from ..services.notification import NotificationService
 
 router = APIRouter(
     prefix="/friends",

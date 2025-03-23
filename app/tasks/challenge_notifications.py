@@ -1,10 +1,11 @@
 from fastapi import BackgroundTasks
 from sqlmodel import Session, select
 from datetime import datetime, timedelta
+
 from ..models.challenge import Challenge, ChallengeStatus
 from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.user import User
-from ..services.notifications import NotificationService
+from ..services.notification import NotificationService
 
 async def send_ending_soon_notifications(session: Session):
     """Send notifications for challenges ending in 6 hours"""

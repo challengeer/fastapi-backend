@@ -1,9 +1,11 @@
 import firebase_admin
 from firebase_admin import credentials, messaging
-from typing import Optional
+from typing import Optional, List
 from enum import Enum
+from sqlmodel import Session, select
 
 from app.config import FIREBASE_CREDENTIALS_JSON
+from app.models.device import Device
 
 class NotificationType(str, Enum):
     CHALLENGE_INVITE = "challenge_invite"
@@ -45,16 +47,46 @@ class NotificationService:
             print(f"Error sending notification: {e}")
             return False
 
+    async def send_notification_to_user(
+        self,
+        db: Session,
+        user_id: int,
+        title: str,
+        body: str,
+        data: Optional[dict] = None
+    ) -> List[bool]:
+        # Get all devices for the user
+        devices = db.exec(
+            select(Device)
+            .where(Device.user_id == user_id)
+            .where(Device.fcm_token.is_not(None))  # Only get devices with FCM tokens
+        ).all()
+        
+        # Send notification to all devices
+        results = []
+        for device in devices:
+            success = await self.send_notification(
+                fcm_token=device.fcm_token,
+                title=title,
+                body=body,
+                data=data
+            )
+            results.append(success)
+        
+        return results
+
     async def send_challenge_invite(
         self,
-        fcm_token: str,
+        db: Session,
+        user_id: int,
         sender_name: str,
         challenge_title: str,
         challenge_id: int,
         invitation_id: int
     ):
-        return await self.send_notification(
-            fcm_token=fcm_token,
+        return await self.send_notification_to_user(
+            db=db,
+            user_id=user_id,
             title="New Challenge Invitation!",
             body=f"{sender_name} invited you to '{challenge_title}'",
             data={
