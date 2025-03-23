@@ -93,7 +93,7 @@ def calculate_mutual_streak(user1_id: int, user2_id: int, session: Session) -> t
     return streak, total_mutual
 
 
-@router.put("/add", response_model=FriendRequest)
+@router.post("/add", response_model=FriendRequest)
 async def send_friend_request(
     request: FriendRequestCreate,
     session: Session = Depends(get_session),
