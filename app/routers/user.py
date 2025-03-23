@@ -14,7 +14,7 @@ from ..models.user import User, UserPublic
 from ..models.friendship import Friendship
 from ..models.friend_request import FriendRequest, RequestStatus
 from ..services.auth import get_current_user_id, validate_username
-from ..services.s3 import s3_client
+from ..services.s3 import s3_service
 from ..config import S3_BUCKET_NAME
 from ..models.challenge_submission import ChallengeSubmission
 from ..services.notification import NotificationService
@@ -33,6 +33,52 @@ class FriendshipStatus(str, Enum):
     REQUEST_SENT = "request_sent"
     REQUEST_RECEIVED = "request_received"
     NONE = "none"
+
+def calculate_streak(completion_dates: List[datetime]) -> int:
+    if not completion_dates:
+        return 0
+        
+    # Convert to dates only (ignore time) and sort in descending order
+    dates = sorted([d.date() for d in completion_dates], reverse=True)
+    
+    # Check if there's activity today or in the last 3 days
+    today = datetime.now().date()
+    if (today - dates[0]) > timedelta(days=3):
+        return 0  # Streak is broken if no activity in last 3 days
+        
+    streak = 1
+    allowed_gap = timedelta(days=3)  # Maximum allowed gap between challenges
+    
+    # Start from the second most recent date
+    for i in range(1, len(dates)):
+        gap = dates[i-1] - dates[i]
+        if gap <= allowed_gap:
+            streak += 1
+        else:
+            break
+            
+    return streak
+
+
+
+class UserMe(UserPublic):
+    email: Optional[str]
+    phone_number: Optional[str]
+
+@router.get("/me", response_model=UserMe)
+def read_current_user(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    user = session.exec(
+        select(User).where(User.user_id == current_user_id)
+    ).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user
+
 
 class SearchUser(UserPublic):
     request_id: Optional[int]
@@ -108,19 +154,6 @@ def search_users(
     
     return categorized_users
 
-class UserLocal(UserPublic):
-    email: Optional[str]
-    phone_number: Optional[str]
-
-@router.get("/me", response_model=UserLocal)
-def read_current_user(
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    user = session.exec(select(User).where(User.user_id == current_user_id)).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
 class UserProfile(UserPublic):
     request_id: Optional[int]
@@ -128,31 +161,6 @@ class UserProfile(UserPublic):
     challenge_completion_dates: List[datetime] = []
     total_challenges_completed: int = 0
     current_streak: int = 0
-
-def calculate_streak(completion_dates: List[datetime]) -> int:
-    if not completion_dates:
-        return 0
-        
-    # Convert to dates only (ignore time) and sort in descending order
-    dates = sorted([d.date() for d in completion_dates], reverse=True)
-    
-    # Check if there's activity today or in the last 3 days
-    today = datetime.now().date()
-    if (today - dates[0]) > timedelta(days=3):
-        return 0  # Streak is broken if no activity in last 3 days
-        
-    streak = 1
-    allowed_gap = timedelta(days=3)  # Maximum allowed gap between challenges
-    
-    # Start from the second most recent date
-    for i in range(1, len(dates)):
-        gap = dates[i-1] - dates[i]
-        if gap <= allowed_gap:
-            streak += 1
-        else:
-            break
-            
-    return streak
 
 @router.get("/{user_id}", response_model=UserProfile)
 def read_user(
@@ -211,6 +219,7 @@ def read_user(
     
     return user_dict
 
+
 class UpdateUsernameRequest(BaseModel):
     username: str
 
@@ -243,6 +252,7 @@ async def update_username(
     session.refresh(user)
     return user
 
+
 @router.put("/display-name", response_model=UserPublic)
 async def update_display_name(
     request: UpdateDisplayNameRequest,
@@ -259,12 +269,17 @@ async def update_display_name(
     session.refresh(user)
     return user
 
+
 @router.put("/profile-picture", response_model=UserPublic)
 async def update_profile_picture(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
+    # Validate file type
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
     # Get current user and their existing profile picture
     user = session.exec(
         select(User).where(User.user_id == current_user_id)
@@ -272,62 +287,20 @@ async def update_profile_picture(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Extract old image key if it exists
-    old_image_key = None
+    # Delete old profile picture if it exists
     if user.profile_picture:
-        match = re.search(r'profile-pictures/.*$', user.profile_picture)
-        if match:
-            old_image_key = match.group(0)
+        old_key = s3_service.extract_key_from_url(user.profile_picture)
+        if old_key:
+            s3_service.delete_file(old_key)
 
-    # Validate file type
-    if not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
-    # Read and process image
-    try:
-        # Read image into memory
-        contents = await file.read()
-        image = Image.open(BytesIO(contents))
-        
-        # Convert to RGB if image is in RGBA mode
-        if image.mode == 'RGBA':
-            image = image.convert('RGB')
-        
-        # Calculate new dimensions while maintaining aspect ratio
-        max_size = 400
-        ratio = min(max_size/image.width, max_size/image.height)
-        if ratio < 1:  # Only resize if image is larger than max_size
-            new_size = (int(image.width * ratio), int(image.height * ratio))
-            image = image.resize(new_size, Image.Resampling.LANCZOS)
-        
-        # Save processed image to memory
-        output = BytesIO()
-        image.save(output, format='JPEG', quality=85)
-        output.seek(0)
-        
-        # Generate unique filename
-        new_filename = f"profile-pictures/{current_user_id}-{uuid.uuid4()}.jpg"
-        
-        # Upload to S3
-        s3_client.upload_fileobj(
-            output,
-            S3_BUCKET_NAME,
-            new_filename,
-            ExtraArgs={'ContentType': 'image/jpeg'}
-        )
-        s3_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{new_filename}"
+    # Upload new profile picture
+    contents = await file.read()
+    s3_url = await s3_service.upload_image(
+        file_content=contents,
+        folder="profile-pictures",
+        identifier=str(current_user_id)
+    )
 
-        # Delete old image if it exists
-        if old_image_key:
-            try:
-                s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=old_image_key)
-            except Exception:
-                # Log error but don't fail the request if deletion fails
-                print(f"Failed to delete old profile picture: {old_image_key}")
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to process or upload image")
-    
     # Update user profile picture URL
     user.profile_picture = s3_url
     session.add(user)
