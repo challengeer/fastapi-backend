@@ -270,40 +270,40 @@ async def update_display_name(
     return user
 
 
-@router.put("/profile-picture", response_model=UserPublic)
-async def update_profile_picture(
-    file: UploadFile = File(...),
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    # Validate file type
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
+# @router.put("/profile-picture", response_model=UserPublic)
+# async def update_profile_picture(
+#     file: UploadFile = File(...),
+#     session: Session = Depends(get_session),
+#     current_user_id: int = Depends(get_current_user_id)
+# ):
+#     # Validate file type
+#     if not file.content_type.startswith("image/"):
+#         raise HTTPException(status_code=400, detail="File must be an image")
 
-    # Get current user and their existing profile picture
-    user = session.exec(
-        select(User).where(User.user_id == current_user_id)
-    ).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+#     # Get current user and their existing profile picture
+#     user = session.exec(
+#         select(User).where(User.user_id == current_user_id)
+#     ).first()
+#     if not user:
+#         raise HTTPException(status_code=404, detail="User not found")
 
-    # Delete old profile picture if it exists
-    if user.profile_picture:
-        old_key = s3_service.extract_key_from_url(user.profile_picture)
-        if old_key:
-            s3_service.delete_file(old_key)
+#     # Delete old profile picture if it exists
+#     if user.profile_picture:
+#         old_key = s3_service.extract_key_from_url(user.profile_picture)
+#         if old_key:
+#             s3_service.delete_file(old_key)
 
-    # Upload new profile picture
-    contents = await file.read()
-    s3_url = await s3_service.upload_image(
-        file_content=contents,
-        folder="profile-pictures",
-        identifier=str(current_user_id)
-    )
+#     # Upload new profile picture
+#     contents = await file.read()
+#     s3_url = await s3_service.upload_image(
+#         file_content=contents,
+#         folder="profile-pictures",
+#         identifier=str(current_user_id)
+#     )
 
-    # Update user profile picture URL
-    user.profile_picture = s3_url
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return user
+#     # Update user profile picture URL
+#     user.profile_picture = s3_url
+#     session.add(user)
+#     session.commit()
+#     session.refresh(user)
+#     return user
