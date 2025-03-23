@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 from pydantic import BaseModel
+from typing import Optional
 from datetime import datetime, timezone,timedelta
 from google.oauth2 import id_token
 from google.auth.transport import requests
@@ -45,8 +46,13 @@ def generate_username(first_name: str, last_name: str) -> str:
     return username
 
 
-class GoogleAuthRequest(DeviceCreate):
+class GoogleAuthRequest(BaseModel):
     token: str
+    fcm_token: Optional[str] = None
+    brand: Optional[str] = None
+    model_name: Optional[str] = None
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
 
 class GoogleAuthResponse(BaseModel):
     user: UserPublic
@@ -108,9 +114,9 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
                     user_id=user.user_id,
                     fcm_token=request.fcm_token,
                     brand=request.brand,
-                    model_name=request.model,
-                    os_name=request.os,
-                    os_version=request.version
+                    model_name=request.model_name,
+                    os_name=request.os_name,
+                    os_version=request.os_version
                 )
                 db.add(device)
                 db.commit()
