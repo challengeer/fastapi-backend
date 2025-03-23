@@ -96,7 +96,8 @@ class SimpleInviteResponse(ChallengePublic):
     sender: UserPublic
 
 class ChallengesListResponse(BaseModel):
-    challenges: List[SimpleChallengeResponse]
+    owned_challenges: List[SimpleChallengeResponse]
+    participating_challenges: List[SimpleChallengeResponse]
     invitations: List[SimpleInviteResponse]
 
 @router.post("/create", response_model=Challenge)
@@ -240,27 +241,35 @@ def get_my_challenges(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    # Get challenges where user is either creator or accepted participant
-    statement = (
+    # Get owned challenges
+    owned_statement = (
         select(Challenge)
         .where(
-            (
-                (Challenge.creator_id == current_user_id) |
-                Challenge.challenge_id.in_(
-                    select(ChallengeInvitation.challenge_id)
-                    .where(
-                        (ChallengeInvitation.receiver_id == current_user_id) &
-                        (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-                    )
-                )
-            ) & (Challenge.end_date > datetime.now())
+            (Challenge.creator_id == current_user_id) &
+            (Challenge.end_date > datetime.now())
         )
     )
-    results = session.exec(statement).all()
-    
-    challenges = []
-    for challenge in results:
-        # Check for new submissions
+    owned_results = session.exec(owned_statement).all()
+
+    # Get participating challenges (where user accepted invitation)
+    participating_statement = (
+        select(Challenge)
+        .where(
+            Challenge.challenge_id.in_(
+                select(ChallengeInvitation.challenge_id)
+                .where(
+                    (ChallengeInvitation.receiver_id == current_user_id) &
+                    (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+                )
+            ) & 
+            (Challenge.end_date > datetime.now())
+        )
+    )
+    participating_results = session.exec(participating_statement).all()
+
+    # Process owned challenges
+    owned_challenges = []
+    for challenge in owned_results:
         new_submissions_exist = session.exec(
             select(ChallengeSubmission)
             .where(
@@ -273,7 +282,31 @@ def get_my_challenges(
             )
         ).first() is not None
         
-        challenges.append({
+        owned_challenges.append({
+            "challenge_id": challenge.challenge_id,
+            "title": challenge.title,
+            "emoji": challenge.emoji,
+            "category": challenge.category,
+            "end_date": challenge.end_date,
+            "has_new_submissions": new_submissions_exist
+        })
+
+    # Process participating challenges
+    participating_challenges = []
+    for challenge in participating_results:
+        new_submissions_exist = session.exec(
+            select(ChallengeSubmission)
+            .where(
+                (ChallengeSubmission.challenge_id == challenge.challenge_id) &
+                (ChallengeSubmission.user_id != current_user_id) &
+                ~ChallengeSubmission.submission_id.in_(
+                    select(SubmissionView.submission_id)
+                    .where(SubmissionView.viewer_id == current_user_id)
+                )
+            )
+        ).first() is not None
+        
+        participating_challenges.append({
             "challenge_id": challenge.challenge_id,
             "title": challenge.title,
             "emoji": challenge.emoji,
@@ -308,7 +341,8 @@ def get_my_challenges(
         })
     
     return {
-        "challenges": challenges,
+        "owned_challenges": owned_challenges,
+        "participating_challenges": participating_challenges,
         "invitations": invitations
     }
 
