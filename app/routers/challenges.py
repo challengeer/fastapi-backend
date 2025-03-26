@@ -12,7 +12,7 @@ from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.challenge_submission import ChallengeSubmission
 from ..models.submission_view import SubmissionView
 from ..services.auth import get_current_user_id
-from ..services.s3 import upload_image, delete_image, extract_key_from_url
+from ..services.s3 import upload_image, delete_file, extract_key_from_url
 from ..services.notification import NotificationService
 
 router = APIRouter(
@@ -810,7 +810,7 @@ async def delete_challenge(
     # After successful database deletion, delete the S3 photos
     for photo_url in photo_urls:
         try:
-            delete_image(extract_key_from_url(photo_url))
+            delete_file(extract_key_from_url(photo_url))
         except Exception as e:
             print(f"Failed to delete S3 photo {photo_url}: {e}")
             # Continue with other deletions even if one fails
