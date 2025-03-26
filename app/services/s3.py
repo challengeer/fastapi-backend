@@ -62,7 +62,7 @@ async def upload_image(file_content: bytes,
         output.seek(0)
         
         # Generate filename and upload
-        filename = f"{folder}/{identifier}{"-" if identifier else ""}{uuid.uuid4()}.jpg"
+        filename = f"{folder}/{identifier}{'-' if identifier else ''}{uuid.uuid4()}.jpg"
         
         s3_client.upload_fileobj(
             output,
