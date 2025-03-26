@@ -76,7 +76,7 @@ async def upload_image(file_content: bytes,
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process or upload image: {str(e)}")
 
-def delete_file(self, key: str) -> bool:
+def delete_file(key: str) -> bool:
     try:
         s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=key)
         return True

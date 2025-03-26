@@ -12,7 +12,7 @@ from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.challenge_submission import ChallengeSubmission
 from ..models.submission_view import SubmissionView
 from ..services.auth import get_current_user_id
-from ..services.s3 import upload_image
+from ..services.s3 import upload_image, delete_image, extract_key_from_url
 from ..services.notification import NotificationService
 
 router = APIRouter(
@@ -694,3 +694,125 @@ def get_challenge_details(
         "user_status": user_status,
         "invitation_id": invitation_id
     }
+
+
+class ChallengeTitleUpdate(BaseModel):
+    title: str
+
+@router.put("/{challenge_id}/title")
+def update_challenge_title(
+    challenge_id: int,
+    update: ChallengeTitleUpdate,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    """Update the title of a challenge. Only the creator can update the title."""
+    
+    # Get challenge and verify ownership
+    challenge = session.get(Challenge, challenge_id)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    
+    if challenge.creator_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Only the challenge creator can update the title")
+    
+    if challenge.status != ChallengeStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Can only update active challenges")
+
+    # Update title
+    challenge.title = update.title
+    session.add(challenge)
+    session.commit()
+    session.refresh(challenge)
+    return challenge
+
+
+class ChallengeDescriptionUpdate(BaseModel):
+    description: Optional[str] = None
+
+@router.put("/{challenge_id}/description")
+def update_challenge_description(
+    challenge_id: int,
+    update: ChallengeDescriptionUpdate,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    """Update the description of a challenge. Only the creator can update the description."""
+    
+    # Get challenge and verify ownership
+    challenge = session.get(Challenge, challenge_id)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    
+    if challenge.creator_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Only the challenge creator can update the description")
+    
+    if challenge.status != ChallengeStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Can only update active challenges")
+
+    # Update description
+    challenge.description = update.description
+    session.add(challenge)
+    session.commit()
+    session.refresh(challenge)
+    return challenge
+
+
+@router.delete("/{challenge_id}")
+async def delete_challenge(
+    challenge_id: int,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    """Delete a challenge and all its related data, including S3 photos. Only the creator can delete it."""
+    
+    # Get challenge and verify ownership
+    challenge = session.get(Challenge, challenge_id)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    
+    if challenge.creator_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Only the challenge creator can delete the challenge")
+
+    # Get all submission photo URLs before deleting the records
+    submissions = session.exec(
+        select(ChallengeSubmission)
+        .where(ChallengeSubmission.challenge_id == challenge_id)
+    ).all()
+    
+    photo_urls = [submission.photo_url for submission in submissions]
+
+    # Delete in correct order to handle foreign key constraints
+    
+    # 1. Delete submission views first
+    session.exec(
+        select(SubmissionView)
+        .join(ChallengeSubmission, ChallengeSubmission.submission_id == SubmissionView.submission_id)
+        .where(ChallengeSubmission.challenge_id == challenge_id)
+    ).delete()
+    
+    # 2. Delete submissions
+    session.exec(
+        select(ChallengeSubmission)
+        .where(ChallengeSubmission.challenge_id == challenge_id)
+    ).delete()
+    
+    # 3. Delete invitations
+    session.exec(
+        select(ChallengeInvitation)
+        .where(ChallengeInvitation.challenge_id == challenge_id)
+    ).delete()
+    
+    # 4. Delete the challenge
+    session.delete(challenge)
+    session.commit()
+
+    # After successful database deletion, delete the S3 photos
+    for photo_url in photo_urls:
+        try:
+            delete_image(extract_key_from_url(photo_url))
+        except Exception as e:
+            print(f"Failed to delete S3 photo {photo_url}: {e}")
+            # Continue with other deletions even if one fails
+    
+    return {"message": "Challenge and all related data deleted successfully"}
