@@ -32,23 +32,6 @@ class UserChallengeStatus(str, Enum):
 class ParticipantInfo(UserPublic):
     has_submitted: bool
 
-class ChallengeResponse(BaseModel):
-    challenge_id: int
-    creator_id: int
-    title: str
-    description: str
-    emoji: str
-    category: str
-    start_date: datetime
-    end_date: Optional[datetime]
-    status: ChallengeStatus
-    created_at: datetime
-    creator: UserPublic
-    participants: List[ParticipantInfo]
-    has_new_submissions: bool
-    user_status: UserChallengeStatus
-    invitation_id: Optional[int] = None
-
 class SubmissionResponse(BaseModel):
     submission_id: int
     challenge_id: int
@@ -566,15 +549,48 @@ async def check_new_submissions(
     return new_submissions is not None
 
 
+class Participant(UserPublic):
+    has_submitted: bool
+
+class ChallengeResponse(BaseModel):
+    challenge_id: int
+    creator_id: int
+    title: str
+    description: str
+    emoji: str
+    category: str
+    start_date: datetime
+    end_date: Optional[datetime]
+    status: ChallengeStatus
+    created_at: datetime
+    creator: Participant
+    participants: List[Participant]
+    has_new_submissions: bool
+    user_status: UserChallengeStatus
+    invitation_id: Optional[int] = None
+
 @router.get("/{challenge_id}", response_model=ChallengeResponse)
 def get_challenge_details(
     challenge_id: int,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    # Combine challenge, creator, user's invitation, and user's submission into one query
+    # Get challenge details with creator info and current user's status in one query
     statement = (
-        select(Challenge, User, ChallengeInvitation, ChallengeSubmission)
+        select(
+            Challenge,
+            User,
+            ChallengeInvitation,
+            ChallengeSubmission.submission_id.label("user_submission_id"),
+            select(ChallengeSubmission.submission_id)
+            .where(
+                (ChallengeSubmission.challenge_id == challenge_id) &
+                (ChallengeSubmission.user_id == Challenge.creator_id)
+            )
+            .limit(1)
+            .scalar_subquery()
+            .label("creator_submission_id")
+        )
         .join(User, User.user_id == Challenge.creator_id)
         .outerjoin(
             ChallengeInvitation,
@@ -592,16 +608,19 @@ def get_challenge_details(
     if not result:
         raise HTTPException(status_code=404, detail="Challenge not found")
     
-    challenge, creator, user_invitation, user_submission = result
+    challenge, creator, user_invitation, user_submission_id, creator_submission_id = result
 
-    # Check participation status and authorization in one go
+    # Check participation status and authorization
     is_creator = challenge.creator_id == current_user_id
     if not (is_creator or (user_invitation and user_invitation.status in [InvitationStatus.ACCEPTED, InvitationStatus.PENDING])):
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
     # Get all participants and their submissions in a single query
     participants_query = (
-        select(User, ChallengeSubmission)
+        select(
+            User,
+            ChallengeSubmission.submission_id.label("has_submitted")
+        )
         .join(
             ChallengeInvitation,
             (ChallengeInvitation.receiver_id == User.user_id) &
@@ -617,7 +636,7 @@ def get_challenge_details(
     participant_results = session.exec(participants_query).all()
 
     # Determine user status and invitation_id
-    if user_submission:
+    if user_submission_id:
         user_status = UserChallengeStatus.SUBMITTED
         invitation_id = None
     elif is_creator:
@@ -631,9 +650,9 @@ def get_challenge_details(
             user_status = UserChallengeStatus.INVITED
             invitation_id = user_invitation.invitation_id
 
-    # Check for new submissions with a more efficient query
+    # Check for new submissions efficiently
     new_submissions_exist = session.exec(
-        select(ChallengeSubmission.submission_id)
+        select(1)
         .where(
             (ChallengeSubmission.challenge_id == challenge_id) &
             (ChallengeSubmission.user_id != current_user_id) &
@@ -642,18 +661,21 @@ def get_challenge_details(
                 .where(SubmissionView.viewer_id == current_user_id)
             )
         )
-        .limit(1)  # Only need to know if any exist
+        .limit(1)
     ).first() is not None
 
     return {
         **challenge.model_dump(),
-        "creator": creator,
+        "creator": {
+            **creator.model_dump(),
+            "has_submitted": creator_submission_id is not None
+        },
         "participants": [
             {
                 **user.model_dump(),
-                "has_submitted": submission is not None
+                "has_submitted": submission_id is not None
             }
-            for user, submission in participant_results
+            for user, submission_id in participant_results
         ],
         "has_new_submissions": new_submissions_exist,
         "user_status": user_status,
