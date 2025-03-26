@@ -594,15 +594,7 @@ def get_challenge_details(
             Challenge,
             User,
             ChallengeInvitation,
-            ChallengeSubmission.submission_id.label("user_submission_id"),
-            select(ChallengeSubmission.submission_id)
-            .where(
-                (ChallengeSubmission.challenge_id == challenge_id) &
-                (ChallengeSubmission.user_id == Challenge.creator_id)
-            )
-            .limit(1)
-            .scalar_subquery()
-            .label("creator_submission_id")
+            ChallengeSubmission.submission_id.label("user_submission_id")
         )
         .join(User, User.user_id == Challenge.creator_id)
         .outerjoin(
@@ -621,7 +613,16 @@ def get_challenge_details(
     if not result:
         raise HTTPException(status_code=404, detail="Challenge not found")
     
-    challenge, creator, user_invitation, user_submission_id, creator_submission_id = result
+    challenge, creator, user_invitation, user_submission_id = result
+
+    # Get creator's submission status separately
+    creator_submission = session.exec(
+        select(ChallengeSubmission.submission_id)
+        .where(
+            (ChallengeSubmission.challenge_id == challenge_id) &
+            (ChallengeSubmission.user_id == challenge.creator_id)
+        )
+    ).first()
 
     # Check participation status and authorization
     is_creator = challenge.creator_id == current_user_id
@@ -681,7 +682,7 @@ def get_challenge_details(
         **challenge.model_dump(),
         "creator": {
             **creator.model_dump(),
-            "has_submitted": creator_submission_id is not None
+            "has_submitted": creator_submission is not None
         },
         "participants": [
             {
