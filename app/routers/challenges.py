@@ -3,9 +3,6 @@ from sqlmodel import Session, select
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta
-import uuid
-from PIL import Image
-from io import BytesIO
 from enum import Enum
 
 from ..services.database import get_session
@@ -15,8 +12,7 @@ from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.challenge_submission import ChallengeSubmission
 from ..models.submission_view import SubmissionView
 from ..services.auth import get_current_user_id
-from ..services.s3 import s3_client
-from ..config import S3_BUCKET_NAME
+from ..services.s3 import upload_image
 from ..services.notification import NotificationService
 
 router = APIRouter(
@@ -27,18 +23,6 @@ router = APIRouter(
 # Initialize notification service
 notification_service = NotificationService()
 
-class ChallengeCreate(BaseModel):
-    title: str
-    description: Optional[str] = None
-    emoji: Optional[str] = "🎯"
-    category: str
-
-class ChallengeInviteCreate(BaseModel):
-    challenge_id: int
-    receiver_ids: List[int]
-
-class ChallengeInviteAction(BaseModel):
-    invitation_id: int
 
 class UserChallengeStatus(str, Enum):
     PARTICIPANT = "participant"
@@ -100,6 +84,13 @@ class ChallengesListResponse(BaseModel):
     participating_challenges: List[SimpleChallengeResponse]
     invitations: List[SimpleInviteResponse]
 
+
+class ChallengeCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    emoji: Optional[str] = "🎯"
+    category: str
+
 @router.post("/create", response_model=Challenge)
 def create_challenge(
     challenge: ChallengeCreate,
@@ -122,6 +113,11 @@ def create_challenge(
     session.commit()
     session.refresh(new_challenge)
     return new_challenge
+
+
+class ChallengeInviteCreate(BaseModel):
+    challenge_id: int
+    receiver_ids: List[int]
 
 @router.post("/invite")
 async def invite_to_challenge(
@@ -185,6 +181,10 @@ async def invite_to_challenge(
     session.commit()
     return {"message": f"Sent {len(invitations)} invitations"}
 
+
+class ChallengeInviteAction(BaseModel):
+    invitation_id: int
+
 @router.put("/accept")
 def accept_challenge(
     action: ChallengeInviteAction,
@@ -213,6 +213,7 @@ def accept_challenge(
     session.refresh(invitation)
     return invitation
 
+
 @router.put("/decline")
 def decline_challenge(
     action: ChallengeInviteAction,
@@ -235,6 +236,7 @@ def decline_challenge(
     session.commit()
     session.refresh(invitation)
     return invitation
+
 
 @router.get("/list", response_model=ChallengesListResponse)
 def get_my_challenges(
@@ -346,6 +348,7 @@ def get_my_challenges(
         "invitations": invitations
     }
 
+
 @router.post("/{challenge_id}/submit", response_model=ChallengeSubmission)
 async def submit_challenge_photo(
     challenge_id: int,
@@ -389,41 +392,13 @@ async def submit_challenge_photo(
     if not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
     
-    try:
-        # Read and process image
-        contents = await file.read()
-        image = Image.open(BytesIO(contents))
-        
-        # Convert to RGB if image is in RGBA mode
-        if image.mode == 'RGBA':
-            image = image.convert('RGB')
-        
-        # Calculate new dimensions while maintaining aspect ratio
-        max_size = 1200
-        ratio = min(max_size/image.width, max_size/image.height)
-        if ratio < 1:  # Only resize if image is larger than max_size
-            new_size = (int(image.width * ratio), int(image.height * ratio))
-            image = image.resize(new_size, Image.Resampling.LANCZOS)
-        
-        # Save processed image to memory
-        output = BytesIO()
-        image.save(output, format='JPEG', quality=85)
-        output.seek(0)
-        
-        # Generate unique filename
-        filename = f"challenge-submissions/{challenge_id}/{current_user_id}-{uuid.uuid4()}.jpg"
-        
-        # Upload to S3
-        s3_client.upload_fileobj(
-            output,
-            S3_BUCKET_NAME,
-            filename,
-            ExtraArgs={'ContentType': 'image/jpeg'}
-        )
-        photo_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{filename}"
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to process or upload image")
+    photo_url = await upload_image(
+        file.file,
+        folder=f"challenge-submissions/{challenge_id}",
+        identifier=str(current_user_id),
+        width=1080,
+        height=1920
+    )
 
     # Create submission
     submission = ChallengeSubmission(
@@ -462,6 +437,7 @@ async def submit_challenge_photo(
             )
 
     return submission
+
 
 @router.get("/{challenge_id}/submissions", response_model=List[SubmissionResponse])
 async def get_challenge_submissions(
@@ -546,6 +522,7 @@ async def get_challenge_submissions(
 
     return submissions
 
+
 @router.get("/{challenge_id}/has-new", response_model=bool)
 async def check_new_submissions(
     challenge_id: int,
@@ -587,6 +564,7 @@ async def check_new_submissions(
     ).first()
 
     return new_submissions is not None
+
 
 @router.get("/{challenge_id}", response_model=ChallengeResponse)
 def get_challenge_details(

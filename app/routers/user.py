@@ -2,23 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select
 from typing import Optional, List
 from pydantic import BaseModel
-from enum import Enum
-import uuid
-from PIL import Image
-from io import BytesIO
-import re
 from datetime import datetime, timedelta
+from enum import Enum
 
 from ..services.database import get_session
 from ..models.user import User, UserPublic
 from ..models.friendship import Friendship
 from ..models.friend_request import FriendRequest, RequestStatus
 from ..services.auth import get_current_user_id, validate_username
-# from ..services.s3 import s3_service
-from ..config import S3_BUCKET_NAME
+from ..services.s3 import upload_image, extract_key_from_url, delete_file
 from ..models.challenge_submission import ChallengeSubmission
 from ..services.notification import NotificationService
-from sqlalchemy.orm import joinedload
 
 router = APIRouter(
     prefix="/user",
@@ -270,40 +264,38 @@ async def update_display_name(
     return user
 
 
-# @router.put("/profile-picture", response_model=UserPublic)
-# async def update_profile_picture(
-#     file: UploadFile = File(...),
-#     session: Session = Depends(get_session),
-#     current_user_id: int = Depends(get_current_user_id)
-# ):
-#     # Validate file type
-#     if not file.content_type.startswith("image/"):
-#         raise HTTPException(status_code=400, detail="File must be an image")
+@router.put("/profile-picture", response_model=UserPublic)
+async def update_profile_picture(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Validate file type
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
 
-#     # Get current user and their existing profile picture
-#     user = session.exec(
-#         select(User).where(User.user_id == current_user_id)
-#     ).first()
-#     if not user:
-#         raise HTTPException(status_code=404, detail="User not found")
+    # Get current user and their existing profile picture
+    user = session.get(User, current_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-#     # Delete old profile picture if it exists
-#     if user.profile_picture:
-#         old_key = s3_service.extract_key_from_url(user.profile_picture)
-#         if old_key:
-#             s3_service.delete_file(old_key)
+    # Delete old profile picture if it exists
+    if user.profile_picture:
+        old_key = extract_key_from_url(user.profile_picture)
+        if old_key:
+            delete_file(old_key)
 
-#     # Upload new profile picture
-#     contents = await file.read()
-#     s3_url = await s3_service.upload_image(
-#         file_content=contents,
-#         folder="profile-pictures",
-#         identifier=str(current_user_id)
-#     )
+    s3_url = await upload_image(
+        file_content=file.file,
+        folder="profile-pictures",
+        identifier=str(current_user_id),
+        width=400,
+        height=400
+    )
 
-#     # Update user profile picture URL
-#     user.profile_picture = s3_url
-#     session.add(user)
-#     session.commit()
-#     session.refresh(user)
-#     return user
+    # Update user profile picture URL
+    user.profile_picture = s3_url
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
