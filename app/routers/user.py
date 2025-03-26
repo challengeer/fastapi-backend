@@ -285,8 +285,11 @@ async def update_profile_picture(
         if old_key:
             delete_file(old_key)
 
+    # Read the file contents before passing to upload_image
+    file_content = await file.read()
+    
     s3_url = await upload_image(
-        file_content=file.file,
+        file_content=file_content,
         folder="profile-pictures",
         identifier=str(current_user_id),
         width=400,

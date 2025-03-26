@@ -388,8 +388,11 @@ async def submit_challenge_photo(
     if not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
     
+    # Read the file contents before passing to upload_image
+    file_content = await file.read()
+    
     photo_url = await upload_image(
-        file.file,
+        file_content,  # Pass the bytes content instead of the file object
         folder=f"challenge-submissions/{challenge_id}",
         identifier=str(current_user_id),
         width=1080,
