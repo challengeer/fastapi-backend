@@ -169,7 +169,7 @@ class ChallengeInviteAction(BaseModel):
     invitation_id: int
 
 @router.put("/accept")
-def accept_challenge(
+async def accept_challenge(
     action: ChallengeInviteAction,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
@@ -189,9 +189,22 @@ def accept_challenge(
     if not challenge or challenge.status != ChallengeStatus.ACTIVE:
         raise HTTPException(status_code=400, detail="Challenge is not active")
     
+    # Get accepter info for notification
+    accepter = session.get(User, current_user_id)
+    
     invitation.status = InvitationStatus.ACCEPTED
     invitation.responded_at = datetime.now()
     session.add(invitation)
+    
+    # Send notification to challenge creator
+    await notification_service.send_challenge_accept(
+        db=session,
+        user_id=challenge.creator_id,
+        accepter_name=accepter.display_name,
+        challenge_title=challenge.title,
+        challenge_id=challenge.challenge_id
+    )
+    
     session.commit()
     session.refresh(invitation)
     return invitation

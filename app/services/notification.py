@@ -13,6 +13,7 @@ class NotificationType(str, Enum):
     CHALLENGE_ENDING = "challenge_ending"
     FRIEND_REQUEST = "friend_request"
     FRIEND_ACCEPT = "friend_accept"
+    CHALLENGE_ACCEPT = "challenge_accept"
 
 class NotificationService:
     def __init__(self):
@@ -167,5 +168,24 @@ class NotificationService:
             data={
                 "type": NotificationType.FRIEND_ACCEPT,
                 "user_id": str(accepter_id)
+            }
+        )
+
+    async def send_challenge_accept(
+        self,
+        db: Session,
+        user_id: int,
+        accepter_name: str,
+        challenge_title: str,
+        challenge_id: int
+    ):
+        return await self.send_notification_to_user(
+            db=db,
+            user_id=user_id,
+            title="Challenge Invitation Accepted",
+            body=f"{accepter_name} joined your challenge '{challenge_title}'",
+            data={
+                "type": NotificationType.CHALLENGE_ACCEPT,
+                "challenge_id": str(challenge_id)
             }
         ) 
