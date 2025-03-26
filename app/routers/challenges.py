@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlmodel import Session, select
+from sqlmodel import Session, select, delete
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -790,22 +790,26 @@ async def delete_challenge(
     
     # 1. Delete submission views first
     session.exec(
-        select(SubmissionView)
-        .join(ChallengeSubmission, ChallengeSubmission.submission_id == SubmissionView.submission_id)
-        .where(ChallengeSubmission.challenge_id == challenge_id)
-    ).delete()
+        delete(SubmissionView)
+        .where(
+            SubmissionView.submission_id.in_(
+                select(ChallengeSubmission.submission_id)
+                .where(ChallengeSubmission.challenge_id == challenge_id)
+            )
+        )
+    )
     
     # 2. Delete submissions
     session.exec(
-        select(ChallengeSubmission)
+        delete(ChallengeSubmission)
         .where(ChallengeSubmission.challenge_id == challenge_id)
-    ).delete()
+    )
     
     # 3. Delete invitations
     session.exec(
-        select(ChallengeInvitation)
+        delete(ChallengeInvitation)
         .where(ChallengeInvitation.challenge_id == challenge_id)
-    ).delete()
+    )
     
     # 4. Delete the challenge
     session.delete(challenge)
