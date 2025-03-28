@@ -199,7 +199,7 @@ def remove_participant(
         raise HTTPException(status_code=404, detail="Participant not found in this challenge")
 
     # Update invitation status
-    invitation.status = InvitationStatus.REMOVED
+    invitation.status = InvitationStatus.DECLINED
     invitation.responded_at = datetime.now()
     session.add(invitation)
 
