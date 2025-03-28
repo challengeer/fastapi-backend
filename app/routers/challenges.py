@@ -164,6 +164,73 @@ async def invite_to_challenge(
     session.commit()
     return {"message": f"Sent {len(invitations)} invitations"}
 
+class RemoveParticipantRequest(BaseModel):
+    challenge_id: int
+    participant_id: int
+
+@router.post("/remove-participant")
+def remove_participant(
+    request: RemoveParticipantRequest,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Get challenge and verify ownership
+    challenge = session.get(Challenge, request.challenge_id)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    
+    if challenge.creator_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Only the challenge creator can remove participants")
+    
+    if challenge.status != ChallengeStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Can only modify active challenges")
+
+    # Get the invitation
+    invitation = session.exec(
+        select(ChallengeInvitation)
+        .where(
+            (ChallengeInvitation.challenge_id == request.challenge_id) &
+            (ChallengeInvitation.receiver_id == request.participant_id) &
+            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+        )
+    ).first()
+
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Participant not found in this challenge")
+
+    # Update invitation status
+    invitation.status = InvitationStatus.REMOVED
+    invitation.responded_at = datetime.now()
+    session.add(invitation)
+
+    # Delete their submission and submission views if they exist
+    submission = session.exec(
+        select(ChallengeSubmission)
+        .where(
+            (ChallengeSubmission.challenge_id == request.challenge_id) &
+            (ChallengeSubmission.user_id == request.participant_id)
+        )
+    ).first()
+
+    if submission:
+        # Delete submission views
+        session.exec(
+            delete(SubmissionView)
+            .where(SubmissionView.submission_id == submission.submission_id)
+        )
+        
+        # Delete the photo from S3
+        try:
+            delete_file(extract_key_from_url(submission.photo_url))
+        except Exception as e:
+            print(f"Failed to delete S3 photo {submission.photo_url}: {e}")
+
+        # Delete the submission
+        session.delete(submission)
+
+    session.commit()
+    return {"message": "Participant removed successfully"}
+
 
 class ChallengeInviteAction(BaseModel):
     invitation_id: int
@@ -824,73 +891,3 @@ async def delete_challenge(
             # Continue with other deletions even if one fails
     
     return {"message": "Challenge and all related data deleted successfully"}
-
-
-class RemoveParticipantRequest(BaseModel):
-    participant_id: int
-
-@router.post("/{challenge_id}/remove-participant")
-def remove_participant(
-    challenge_id: int,
-    request: RemoveParticipantRequest,
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    """Remove a participant from a challenge. Only the creator can remove participants."""
-    
-    # Get challenge and verify ownership
-    challenge = session.get(Challenge, challenge_id)
-    if not challenge:
-        raise HTTPException(status_code=404, detail="Challenge not found")
-    
-    if challenge.creator_id != current_user_id:
-        raise HTTPException(status_code=403, detail="Only the challenge creator can remove participants")
-    
-    if challenge.status != ChallengeStatus.ACTIVE:
-        raise HTTPException(status_code=400, detail="Can only modify active challenges")
-
-    # Get the invitation
-    invitation = session.exec(
-        select(ChallengeInvitation)
-        .where(
-            (ChallengeInvitation.challenge_id == challenge_id) &
-            (ChallengeInvitation.receiver_id == request.participant_id) &
-            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-        )
-    ).first()
-
-    if not invitation:
-        raise HTTPException(status_code=404, detail="Participant not found in this challenge")
-
-    # Update invitation status
-    invitation.status = InvitationStatus.REMOVED
-    invitation.responded_at = datetime.now()
-    session.add(invitation)
-
-    # Delete their submission and submission views if they exist
-    submission = session.exec(
-        select(ChallengeSubmission)
-        .where(
-            (ChallengeSubmission.challenge_id == challenge_id) &
-            (ChallengeSubmission.user_id == request.participant_id)
-        )
-    ).first()
-
-    if submission:
-        # Delete submission views
-        session.exec(
-            delete(SubmissionView)
-            .where(SubmissionView.submission_id == submission.submission_id)
-        )
-        
-        # Delete the photo from S3
-        try:
-            delete_file(extract_key_from_url(submission.photo_url))
-        except Exception as e:
-            print(f"Failed to delete S3 photo {submission.photo_url}: {e}")
-
-        # Delete the submission
-        session.delete(submission)
-
-    session.commit()
-    return {"message": "Participant removed successfully"}
