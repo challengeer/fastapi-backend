@@ -55,17 +55,9 @@ class ChallengePublic(BaseModel):
     category: str
     end_date: Optional[datetime]
 
-class SimpleChallengeResponse(ChallengePublic):
-    has_new_submissions: bool
-
 class SimpleInviteResponse(ChallengePublic):
     invitation_id: int
     sender: UserPublic
-
-class ChallengesListResponse(BaseModel):
-    owned_challenges: List[SimpleChallengeResponse]
-    participating_challenges: List[SimpleChallengeResponse]
-    invitations: List[SimpleInviteResponse]
 
 
 class ChallengeCreate(BaseModel):
@@ -93,6 +85,18 @@ def create_challenge(
         end_date=end_date
     )
     session.add(new_challenge)
+    session.flush()  # Get the challenge_id
+
+    # Create automatic invitation for creator
+    creator_invitation = ChallengeInvitation(
+        challenge_id=new_challenge.challenge_id,
+        sender_id=current_user_id,
+        receiver_id=current_user_id,
+        status=InvitationStatus.ACCEPTED,
+        responded_at=datetime.now()
+    )
+    session.add(creator_invitation)
+    
     session.commit()
     session.refresh(new_challenge)
     return new_challenge
@@ -150,19 +154,18 @@ async def invite_to_challenge(
         session.flush()  # Get invitation ID
         invitations.append(invitation)
 
-        # Send notification if receiver has FCM token
-        if receiver.fcm_token:
-            await notification_service.send_challenge_invite(
-                db=session,
-                user_id=receiver.user_id,
-                sender_name=sender.display_name,
-                challenge_title=challenge.title,
-                challenge_id=challenge.challenge_id,
-                invitation_id=invitation.invitation_id
-            )
+        await notification_service.send_challenge_invite(
+            db=session,
+            user_id=receiver.user_id,
+            sender_name=sender.display_name,
+            challenge_title=challenge.title,
+            challenge_id=challenge.challenge_id,
+            invitation_id=invitation.invitation_id
+        )
 
     session.commit()
     return {"message": f"Sent {len(invitations)} invitations"}
+
 
 class RemoveParticipantRequest(BaseModel):
     challenge_id: int
@@ -301,24 +304,34 @@ def decline_challenge(
     return invitation
 
 
+class ChallengeCompletionStatus(str, Enum):
+    COMPLETED = "completed"
+    NOT_COMPLETED = "not_completed"
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+
+class SimpleChallengeResponse(ChallengePublic):
+    has_new_submissions: bool
+    completion_status: ChallengeCompletionStatus
+
+class ChallengesListResponse(BaseModel):
+    owned_challenges: List[SimpleChallengeResponse]
+    participating_challenges: List[SimpleChallengeResponse]
+    invitations: List[SimpleInviteResponse]
+
 @router.get("/list", response_model=ChallengesListResponse)
 def get_my_challenges(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    # Get owned challenges
-    owned_statement = (
-        select(Challenge)
-        .where(
-            (Challenge.creator_id == current_user_id) &
-            (Challenge.end_date > datetime.now())
-        )
-    )
-    owned_results = session.exec(owned_statement).all()
-
-    # Get participating challenges (where user accepted invitation)
+    # Get all challenges where user has accepted invitation (including owned ones)
     participating_statement = (
-        select(Challenge)
+        select(Challenge, ChallengeSubmission.submission_id.label("submission_id"))
+        .outerjoin(
+            ChallengeSubmission,
+            (ChallengeSubmission.challenge_id == Challenge.challenge_id) &
+            (ChallengeSubmission.user_id == current_user_id)
+        )
         .where(
             Challenge.challenge_id.in_(
                 select(ChallengeInvitation.challenge_id)
@@ -330,35 +343,13 @@ def get_my_challenges(
             (Challenge.end_date > datetime.now())
         )
     )
-    participating_results = session.exec(participating_statement).all()
+    all_challenges = session.exec(participating_statement).all()
 
-    # Process owned challenges
+    # Split into owned and participating
     owned_challenges = []
-    for challenge in owned_results:
-        new_submissions_exist = session.exec(
-            select(ChallengeSubmission)
-            .where(
-                (ChallengeSubmission.challenge_id == challenge.challenge_id) &
-                (ChallengeSubmission.user_id != current_user_id) &
-                ~ChallengeSubmission.submission_id.in_(
-                    select(SubmissionView.submission_id)
-                    .where(SubmissionView.viewer_id == current_user_id)
-                )
-            )
-        ).first() is not None
-        
-        owned_challenges.append({
-            "challenge_id": challenge.challenge_id,
-            "title": challenge.title,
-            "emoji": challenge.emoji,
-            "category": challenge.category,
-            "end_date": challenge.end_date,
-            "has_new_submissions": new_submissions_exist
-        })
-
-    # Process participating challenges
     participating_challenges = []
-    for challenge in participating_results:
+    
+    for challenge, submission_id in all_challenges:
         new_submissions_exist = session.exec(
             select(ChallengeSubmission)
             .where(
@@ -370,15 +361,31 @@ def get_my_challenges(
                 )
             )
         ).first() is not None
+
+        # Determine completion status
+        if submission_id is not None:
+            completion_status = ChallengeCompletionStatus.COMPLETED
+        elif challenge.end_date < datetime.now():
+            completion_status = ChallengeCompletionStatus.NOT_COMPLETED
+        elif challenge.start_date > datetime.now():
+            completion_status = ChallengeCompletionStatus.PENDING
+        else:
+            completion_status = ChallengeCompletionStatus.IN_PROGRESS
         
-        participating_challenges.append({
+        challenge_dict = {
             "challenge_id": challenge.challenge_id,
             "title": challenge.title,
             "emoji": challenge.emoji,
             "category": challenge.category,
             "end_date": challenge.end_date,
-            "has_new_submissions": new_submissions_exist
-        })
+            "has_new_submissions": new_submissions_exist,
+            "completion_status": completion_status
+        }
+        
+        if challenge.creator_id == current_user_id:
+            owned_challenges.append(challenge_dict)
+        else:
+            participating_challenges.append(challenge_dict)
 
     # Get pending invitations
     invites_statement = (
@@ -427,18 +434,17 @@ async def submit_challenge_photo(
     if challenge.status != ChallengeStatus.ACTIVE:
         raise HTTPException(status_code=400, detail="Challenge is not active")
 
-    # Check if user is participant or creator
-    if challenge.creator_id != current_user_id:
-        invitation = session.exec(
-            select(ChallengeInvitation)
-            .where(
-                (ChallengeInvitation.challenge_id == challenge_id) &
-                (ChallengeInvitation.receiver_id == current_user_id) &
-                (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-            )
-        ).first()
-        if not invitation:
-            raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
+    # Check if user has accepted invitation
+    invitation = session.exec(
+        select(ChallengeInvitation)
+        .where(
+            (ChallengeInvitation.challenge_id == challenge_id) &
+            (ChallengeInvitation.receiver_id == current_user_id) &
+            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+        )
+    ).first()
+    if not invitation:
+        raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
     # Check if user already submitted
     existing_submission = session.exec(
@@ -493,14 +499,13 @@ async def submit_challenge_photo(
 
     # Send notifications to all participants
     for participant in participants:
-        if participant.fcm_token:
-            await notification_service.send_challenge_submission(
-                db=session,
-                user_id=participant.user_id,
-                submitter_name=submitter.display_name,
-                challenge_title=challenge.title,
-                challenge_id=challenge_id
-            )
+        await notification_service.send_challenge_submission(
+            db=session,
+            user_id=participant.user_id,
+            submitter_name=submitter.display_name,
+            challenge_title=challenge.title,
+            challenge_id=challenge_id
+        )
 
     return submission
 
@@ -685,18 +690,8 @@ def get_challenge_details(
     
     challenge, creator, user_invitation, user_submission_id = result
 
-    # Get creator's submission status separately
-    creator_submission = session.exec(
-        select(ChallengeSubmission.submission_id)
-        .where(
-            (ChallengeSubmission.challenge_id == challenge_id) &
-            (ChallengeSubmission.user_id == challenge.creator_id)
-        )
-    ).first()
-
     # Check participation status and authorization
-    is_creator = challenge.creator_id == current_user_id
-    if not (is_creator or (user_invitation and user_invitation.status in [InvitationStatus.ACCEPTED, InvitationStatus.PENDING])):
+    if not user_invitation or user_invitation.status not in [InvitationStatus.ACCEPTED, InvitationStatus.PENDING]:
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
     # Get all participants and their submissions in a single query
@@ -723,7 +718,7 @@ def get_challenge_details(
     if user_submission_id:
         user_status = UserChallengeStatus.SUBMITTED
         invitation_id = None
-    elif is_creator:
+    elif challenge.creator_id == current_user_id:
         user_status = UserChallengeStatus.PARTICIPANT
         invitation_id = None
     elif user_invitation:
@@ -752,7 +747,7 @@ def get_challenge_details(
         **challenge.model_dump(),
         "creator": {
             **creator.model_dump(),
-            "has_submitted": creator_submission is not None
+            "has_submitted": user_submission_id is not None
         },
         "participants": [
             {
