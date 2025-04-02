@@ -159,14 +159,12 @@ async def send_friend_request(
     sender = session.get(User, current_user_id)
     receiver = session.get(User, request.receiver_id)
     
-    # Send notification to receiver if they have FCM token
-    if receiver.fcm_token:
-        await notification_service.send_friend_request(
-            db=session,
-            user_id=receiver.user_id,
-            sender_name=sender.display_name,
-            sender_id=sender.user_id
-        )
+    await notification_service.send_friend_request(
+        db=session,
+        user_id=receiver.user_id,
+        sender_name=sender.display_name,
+        sender_id=sender.user_id
+    )
     
     session.commit()
     session.refresh(new_request)
@@ -201,14 +199,12 @@ async def accept_friend_request(
     accepter = session.get(User, current_user_id)
     sender = session.get(User, friend_request.sender_id)
     
-    # Send notification to request sender
-    if sender.fcm_token:
-        await notification_service.send_friend_accept(
-            db=session,
-            user_id=sender.user_id,
-            accepter_name=accepter.display_name,
-            accepter_id=accepter.user_id
-        )
+    await notification_service.send_friend_accept(
+        db=session,
+        user_id=sender.user_id,
+        accepter_name=accepter.display_name,
+        accepter_id=accepter.user_id
+    )
     
     session.add(friend_request)
     session.commit()
