@@ -50,6 +50,7 @@ def generate_username(first_name: str, last_name: str) -> str:
 
 class GoogleAuthRequest(DeviceCreate):
     id_token: str
+    fcm_token: str
 
 class GoogleAuthResponse(BaseModel):
     user: UserPublic
