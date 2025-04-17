@@ -8,8 +8,7 @@ class UserBase(SQLModel):
     profile_picture: Optional[str] = Field(nullable=True, max_length=255)
     email: Optional[str] = Field(nullable=True, index=True, unique=True, max_length=100)
     phone_number: Optional[str] = Field(nullable=True, index=True, unique=True, max_length=15)
-    google_id: Optional[str] = Field(nullable=True, index=True, unique=True, max_length=100)
-    password: Optional[str] = Field(nullable=True, max_length=100)
+    firebase_uid: Optional[str] = Field(nullable=True, index=True, unique=True, max_length=100)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class User(UserBase, table=True):
