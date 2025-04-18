@@ -60,8 +60,10 @@ class GoogleAuthResponse(BaseModel):
 @router.post("/google", response_model=GoogleAuthResponse)
 async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_session)):
     try:
+        print(request.id_token)
         # Verify the Firebase token
         decoded_token = auth.verify_id_token(request.id_token)
+        print(decoded_token)
         uid = decoded_token['uid']
         email = decoded_token.get('email')
         phone_number = decoded_token.get('phone_number')
