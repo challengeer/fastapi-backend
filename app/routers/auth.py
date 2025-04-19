@@ -51,10 +51,6 @@ def generate_username(first_name: str, last_name: str) -> str:
 class GoogleAuthRequest(BaseModel):
     id_token: str
     fcm_token: str
-    brand: str
-    model_name: str
-    os_name: str
-    os_version: str
 
 class GoogleAuthResponse(BaseModel):
     user: UserPublic
@@ -115,11 +111,7 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             if not existing_device:
                 device = Device(
                     user_id=user.user_id,
-                    fcm_token=request.fcm_token,
-                    brand=request.brand,
-                    model_name=request.model_name,
-                    os_name=request.os_name,
-                    os_version=request.os_version
+                    fcm_token=request.fcm_token
                 )
                 db.add(device)
                 db.commit()
