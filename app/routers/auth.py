@@ -9,7 +9,7 @@ import secrets
 from ..services.auth import create_token, verify_token, normalize_username, validate_username, get_current_user_id
 from ..services.database import get_session
 from ..models.user import User, UserPublic
-from ..models.device import Device, DeviceCreate
+from ..models.device import Device
 from ..config import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, FIREBASE_CREDENTIALS_JSON
 
 router = APIRouter(
@@ -48,8 +48,13 @@ def generate_username(first_name: str, last_name: str) -> str:
     return username
 
 
-class GoogleAuthRequest(DeviceCreate):
+class GoogleAuthRequest(BaseModel):
     id_token: str
+    fcm_token: str
+    brand: str
+    model_name: str
+    os_name: str
+    os_version: str
 
 class GoogleAuthResponse(BaseModel):
     user: UserPublic
