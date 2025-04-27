@@ -48,23 +48,113 @@ def generate_username(first_name: str, last_name: str) -> str:
     return username
 
 
-class GoogleAuthRequest(BaseModel):
+class GoogleLoginAuthRequest(BaseModel):
     id_token: str
     fcm_token: str
 
-class GoogleAuthResponse(BaseModel):
+class GoogleLoginAuthResponse(BaseModel):
     user: UserPublic
     access_token: str
     refresh_token: str
 
-@router.post("/google", response_model=GoogleAuthResponse)
-async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_session)):
+@router.post("/google-login", response_model=GoogleLoginAuthResponse)
+async def google_auth(request: GoogleLoginAuthRequest, db: Session = Depends(get_session)):
     try:
         # Verify the Firebase token
         decoded_token = auth.verify_id_token(request.id_token)
         uid = decoded_token['uid']
+
+        # Check if user exists by Firebase UID
+        user = db.exec(
+            select(User).where(User.firebase_uid == uid)
+        ).first()
+
+        # If user doesn't exist, raise error
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User does not exist"
+            )
+
+        # Handle device registration
+        if request.fcm_token:
+            existing_device = db.exec(
+                select(Device).where(
+                    (Device.user_id == user.user_id) &
+                    (Device.fcm_token == request.fcm_token)
+                )
+            ).first()
+
+            if not existing_device:
+                device = Device(
+                    user_id=user.user_id,
+                    fcm_token=request.fcm_token
+                )
+                db.add(device)
+                db.commit()
+
+        tokens = create_tokens(user.user_id)
+        return {
+            "user": UserPublic.model_validate(user),
+            **tokens
+        }
+
+    except auth.InvalidIdTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Firebase token"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+class GoogleRegisterAuthRequest(BaseModel):
+    id_token: str
+    id_phone_token: str
+    fcm_token: str
+
+class GoogleRegisterAuthResponse(BaseModel):
+    user: UserPublic
+    access_token: str
+    refresh_token: str
+
+@router.post("/google-register", response_model=GoogleRegisterAuthResponse)
+async def google_auth(request: GoogleRegisterAuthRequest, db: Session = Depends(get_session)):
+    try:
+        # Verify the phone authentication Firebase token
+        decoded_phone_token = auth.verify_id_token(request.id_phone_token)
+        phone_number = decoded_phone_token["phone_number"]
+
+        # Check if user exists by phone number
+        user = db.exec(
+            select(User).where(User.phone_number == phone_number)
+        ).first()
+
+        if user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number already in use"
+            )
+
+        # Verify the google authentication Firebase token
+        decoded_token = auth.verify_id_token(request.id_token)
+        uid = decoded_token['uid']
+
+        # Check if user exists by Firebase UID
+        user = db.exec(
+            select(User).where(User.firebase_uid == uid)
+        ).first()
+
+        if user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Google account already in use"
+            )
+
         email = decoded_token.get('email')
-        phone_number = decoded_token.get('phone_number')
         name = decoded_token.get('name', '')
         picture = decoded_token.get('picture')
 
@@ -73,31 +163,24 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
         first_name = name_parts[0] if name_parts else 'user'
         last_name = name_parts[1] if len(name_parts) > 1 else ''
 
-        # Check if user exists by Firebase UID
-        user = db.exec(
-            select(User).where(User.firebase_uid == uid)
-        ).first()
-
-        # If user doesn't exist, create a new user
-        if not user:
+        username = generate_username(first_name, last_name)
+        
+        # Ensure username is unique
+        while db.exec(select(User).where(User.username == username)).first():
             username = generate_username(first_name, last_name)
-            
-            # Ensure username is unique
-            while db.exec(select(User).where(User.username == username)).first():
-                username = generate_username(first_name, last_name)
-            
-            # Create new user
-            user = User(
-                username=username,
-                display_name=name or username,
-                profile_picture=picture,
-                email=email,
-                phone_number=phone_number,
-                firebase_uid=uid
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
+        
+        # Create new user
+        user = User(
+            username=username,
+            display_name=name or username,
+            profile_picture=picture,
+            email=email,
+            phone_number=phone_number,
+            firebase_uid=uid
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
         # Handle device registration
         if request.fcm_token:
@@ -188,71 +271,6 @@ async def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_
 
     # Generate new tokens
     return create_tokens(user.user_id)
-
-
-class PhoneVerificationRequest(BaseModel):
-    phone_number: str
-    id_token: str  # Firebase ID token to verify the user is authenticated
-
-class PhoneVerificationResponse(BaseModel):
-    message: str
-    phone_number: str
-
-@router.post("/verify-phone", response_model=PhoneVerificationResponse)
-async def create_phone_verification(
-    request: PhoneVerificationRequest,
-    db: Session = Depends(get_session)
-):
-    try:
-        # Verify the Firebase token
-        decoded_token = auth.verify_id_token(request.id_token)
-        uid = decoded_token['uid']
-        
-        # Get the user
-        user = db.exec(
-            select(User).where(User.firebase_uid == uid)
-        ).first()
-        
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        # Check if phone number is already registered by another user
-        existing_user = db.exec(
-            select(User).where(
-                (User.phone_number == request.phone_number) &
-                (User.user_id != user.user_id)
-            )
-        ).first()
-        
-        if existing_user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Phone number already registered"
-            )
-        
-        # Update user's phone number
-        user.phone_number = request.phone_number
-        db.add(user)
-        db.commit()
-        
-        return {
-            "message": "Phone number updated successfully",
-            "phone_number": request.phone_number
-        }
-        
-    except auth.InvalidIdTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Firebase token"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
 
 
 class UsernameCheckResponse(BaseModel):
