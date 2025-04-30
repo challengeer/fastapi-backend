@@ -692,6 +692,8 @@ def get_challenge_details(
     creator = None
     participants = []
     for user, invitation, submission_id in participant_results:
+        print(submission_id)
+        
         user_dict = {
             **user.model_dump(),
             "has_submitted": submission_id is not None
