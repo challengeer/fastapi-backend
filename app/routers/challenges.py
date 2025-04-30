@@ -691,27 +691,27 @@ def get_challenge_details(
     is_participant = False
     creator = None
     participants = []	
-    for participant in participant_results:
-        if participant.user_id == challenge.creator_id:
-            creator = participant.model_dump()
+    for user, invitation, submission_id in participant_results:
+        if user.user_id == challenge.creator_id:
+            creator = user.model_dump()
         else:
-            participants.append(participant.model_dump())
+            participants.append(user.model_dump())
         
-        if participant.user_id == current_user_id:
+        if user.user_id == current_user_id:
             # Determine user status and invitation_id
-            if participant.submission_id:
+            if submission_id:
                 user_status = UserChallengeStatus.SUBMITTED
                 invitation_id = None
             elif challenge.creator_id == current_user_id:
                 user_status = UserChallengeStatus.PARTICIPANT
                 invitation_id = None
-            elif participant.invitation_id:
-                if participant.invitation_status == InvitationStatus.ACCEPTED:
+            elif invitation.invitation_id:
+                if invitation.status == InvitationStatus.ACCEPTED:
                     user_status = UserChallengeStatus.PARTICIPANT
                     invitation_id = None
                 else:  # PENDING
                     user_status = UserChallengeStatus.INVITED
-                    invitation_id = participant.invitation_id
+                    invitation_id = invitation.invitation_id
 
             is_participant = True
             break
