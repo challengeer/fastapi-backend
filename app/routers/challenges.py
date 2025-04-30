@@ -690,12 +690,17 @@ def get_challenge_details(
 
     is_participant = False
     creator = None
-    participants = []	
+    participants = []
     for user, invitation, submission_id in participant_results:
+        user_dict = {
+            **user.model_dump(),
+            "has_submitted": submission_id is not None
+        }
+        
         if user.user_id == challenge.creator_id:
-            creator = user.model_dump()
+            creator = user_dict
         else:
-            participants.append(user.model_dump())
+            participants.append(user_dict)
         
         if user.user_id == current_user_id:
             # Determine user status and invitation_id
