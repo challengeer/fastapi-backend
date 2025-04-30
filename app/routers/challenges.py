@@ -663,41 +663,15 @@ def get_challenge_details(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    # Get challenge details with creator info and current user's status in one query
-    statement = (
-        select(
-            Challenge,
-            User,
-            ChallengeInvitation,
-            ChallengeSubmission.submission_id.label("user_submission_id")
-        )
-        .join(User, User.user_id == Challenge.creator_id)
-        .outerjoin(
-            ChallengeInvitation,
-            (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
-            (ChallengeInvitation.receiver_id == current_user_id)
-        )
-        .outerjoin(
-            ChallengeSubmission,
-            (ChallengeSubmission.challenge_id == Challenge.challenge_id) &
-            (ChallengeSubmission.user_id == current_user_id)
-        )
-        .where(Challenge.challenge_id == challenge_id)
-    )
-    result = session.exec(statement).first()
-    if not result:
+    challenge = session.get(Challenge, challenge_id)
+    if not challenge:
         raise HTTPException(status_code=404, detail="Challenge not found")
-    
-    challenge, creator, user_invitation, user_submission_id = result
-
-    # Check participation status and authorization
-    if not user_invitation or user_invitation.status not in [InvitationStatus.ACCEPTED, InvitationStatus.PENDING]:
-        raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
     # Get all participants and their submissions in a single query
     participants_query = (
         select(
             User,
+            ChallengeInvitation,
             ChallengeSubmission.submission_id.label("has_submitted")
         )
         .join(
@@ -714,20 +688,36 @@ def get_challenge_details(
     )
     participant_results = session.exec(participants_query).all()
 
-    # Determine user status and invitation_id
-    if user_submission_id:
-        user_status = UserChallengeStatus.SUBMITTED
-        invitation_id = None
-    elif challenge.creator_id == current_user_id:
-        user_status = UserChallengeStatus.PARTICIPANT
-        invitation_id = None
-    elif user_invitation:
-        if user_invitation.status == InvitationStatus.ACCEPTED:
-            user_status = UserChallengeStatus.PARTICIPANT
-            invitation_id = None
-        else:  # PENDING
-            user_status = UserChallengeStatus.INVITED
-            invitation_id = user_invitation.invitation_id
+    is_participant = False
+    creator = None
+    participants = []	
+    for participant in participant_results:
+        if participant.user_id == challenge.creator_id:
+            creator = participant.model_dump()
+        else:
+            participants.append(participant.model_dump())
+        
+        if participant.user_id == current_user_id:
+            # Determine user status and invitation_id
+            if participant.submission_id:
+                user_status = UserChallengeStatus.SUBMITTED
+                invitation_id = None
+            elif challenge.creator_id == current_user_id:
+                user_status = UserChallengeStatus.PARTICIPANT
+                invitation_id = None
+            elif participant.invitation_id:
+                if participant.invitation_status == InvitationStatus.ACCEPTED:
+                    user_status = UserChallengeStatus.PARTICIPANT
+                    invitation_id = None
+                else:  # PENDING
+                    user_status = UserChallengeStatus.INVITED
+                    invitation_id = participant.invitation_id
+
+            is_participant = True
+            break
+
+    if not is_participant:
+        raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
     # Check for new submissions efficiently
     new_submissions_exist = session.exec(
@@ -745,17 +735,8 @@ def get_challenge_details(
 
     return {
         **challenge.model_dump(),
-        "creator": {
-            **creator.model_dump(),
-            "has_submitted": user_submission_id is not None
-        },
-        "participants": [
-            {
-                **user.model_dump(),
-                "has_submitted": submission_id is not None
-            }
-            for user, submission_id in participant_results
-        ],
+        "creator": creator,
+        "participants": participants,
         "has_new_submissions": new_submissions_exist,
         "user_status": user_status,
         "invitation_id": invitation_id
