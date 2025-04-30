@@ -691,9 +691,9 @@ def get_challenge_details(
     is_participant = False
     creator = None
     participants = []
+    user_status = None
+    invitation_id = None
     for user, invitation, submission_id in participant_results:
-        print(submission_id)
-        
         user_dict = {
             **user.model_dump(),
             "has_submitted": submission_id is not None
@@ -708,20 +708,16 @@ def get_challenge_details(
             # Determine user status and invitation_id
             if submission_id:
                 user_status = UserChallengeStatus.SUBMITTED
-                invitation_id = None
             elif challenge.creator_id == current_user_id:
                 user_status = UserChallengeStatus.PARTICIPANT
-                invitation_id = None
             elif invitation.invitation_id:
                 if invitation.status == InvitationStatus.ACCEPTED:
                     user_status = UserChallengeStatus.PARTICIPANT
-                    invitation_id = None
                 else:  # PENDING
                     user_status = UserChallengeStatus.INVITED
                     invitation_id = invitation.invitation_id
 
             is_participant = True
-            break
 
     if not is_participant:
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
