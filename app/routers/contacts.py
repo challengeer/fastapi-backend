@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlmodel import Session, select, and_
+from sqlmodel import Session, select, and_, delete
 from typing import List
 
 from ..services.database import get_session
@@ -13,7 +13,6 @@ router = APIRouter(
     tags=["Contacts"]
 )
 
-
 @router.post("/upload")
 async def upload_contacts(
     contacts: ContactBatchCreate,
@@ -22,8 +21,8 @@ async def upload_contacts(
 ):
     # Delete existing contacts for the user
     session.exec(
-        select(Contact).where(Contact.user_id == current_user_id)
-    ).delete()
+        delete(Contact).where(Contact.user_id == current_user_id)
+    )
     
     # Add new contacts
     for contact in contacts.contacts:
