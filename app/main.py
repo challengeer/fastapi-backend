@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .services.database import create_db_and_tables
-from .routers import auth, user, friends, challenges
+from .routers import auth, user, friends, challenges, contacts
 
 app = FastAPI()
 
@@ -19,6 +19,7 @@ app.include_router(auth.router)
 app.include_router(user.router)
 app.include_router(friends.router)
 app.include_router(challenges.router)
+app.include_router(contacts.router)
 
 @app.on_event("startup")
 def on_startup():
