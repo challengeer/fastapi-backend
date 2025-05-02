@@ -23,6 +23,9 @@ notification_service = NotificationService()
 class FriendRequestCreate(BaseModel):
     receiver_id: int
 
+class BatchFriendRequestCreate(BaseModel):
+    receiver_ids: List[int]
+
 class FriendRequestAction(BaseModel):
     request_id: int
 
@@ -169,6 +172,84 @@ async def send_friend_request(
     session.commit()
     session.refresh(new_request)
     return new_request
+
+@router.post("/add/batch", response_model=List[FriendRequest])
+async def send_batch_friend_requests(
+    request: BatchFriendRequestCreate,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    if not request.receiver_ids:
+        raise HTTPException(status_code=400, detail="No receiver IDs provided")
+    
+    if len(request.receiver_ids) > 50:  # Limit batch size
+        raise HTTPException(status_code=400, detail="Cannot send more than 50 friend requests at once")
+    
+    # Check if any receiver IDs are the current user
+    if current_user_id in request.receiver_ids:
+        raise HTTPException(status_code=400, detail="Cannot send friend request to yourself")
+    
+    # Get all receivers
+    receivers = session.exec(
+        select(User).where(User.user_id.in_(request.receiver_ids))
+    ).all()
+    
+    if len(receivers) != len(request.receiver_ids):
+        raise HTTPException(status_code=404, detail="One or more receivers not found")
+    
+    # Get existing friend requests in either direction
+    existing_requests = session.exec(
+        select(FriendRequest).where(
+            ((FriendRequest.sender_id == current_user_id) & (FriendRequest.receiver_id.in_(request.receiver_ids))) |
+            ((FriendRequest.sender_id.in_(request.receiver_ids)) & (FriendRequest.receiver_id == current_user_id))
+        )
+    ).all()
+    
+    existing_receiver_ids = {req.receiver_id for req in existing_requests if req.sender_id == current_user_id}
+    existing_sender_ids = {req.sender_id for req in existing_requests if req.receiver_id == current_user_id}
+    
+    new_requests = []
+    sender = session.get(User, current_user_id)
+    
+    for receiver_id in request.receiver_ids:
+        if receiver_id in existing_receiver_ids:
+            continue  # Skip if already sent a request
+            
+        if receiver_id in existing_sender_ids:
+            # If there's a pending request from the other user, accept it automatically
+            existing_request = next(req for req in existing_requests if req.sender_id == receiver_id)
+            if existing_request.status == RequestStatus.PENDING:
+                existing_request.status = RequestStatus.ACCEPTED
+                new_friendship = Friendship(
+                    user1_id=min(current_user_id, receiver_id),
+                    user2_id=max(current_user_id, receiver_id)
+                )
+                session.add(new_friendship)
+                session.add(existing_request)
+                continue
+                
+        # Create new friend request
+        new_request = FriendRequest(
+            sender_id=current_user_id,
+            receiver_id=receiver_id
+        )
+        session.add(new_request)
+        new_requests.append(new_request)
+        
+        # Send notification
+        receiver = next(r for r in receivers if r.user_id == receiver_id)
+        await notification_service.send_friend_request(
+            db=session,
+            user_id=receiver.user_id,
+            sender_name=sender.display_name,
+            sender_id=sender.user_id
+        )
+    
+    session.commit()
+    for request in new_requests:
+        session.refresh(request)
+    
+    return new_requests
 
 @router.put("/accept", response_model=Friendship)
 async def accept_friend_request(
