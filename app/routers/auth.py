@@ -74,7 +74,7 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             phone_number = decoded_token.get('phone_number')
 
             if not phone_number:
-                return HTTPException(
+                raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Phone number not verified"
                 )
@@ -135,6 +135,8 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Firebase token"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
