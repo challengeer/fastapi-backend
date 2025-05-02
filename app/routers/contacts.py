@@ -28,7 +28,7 @@ async def upload_contacts(
     # If there are existing contacts, check if they're older than one week
     if existing_contacts:
         one_week_ago = datetime.now(timezone.utc) - timedelta(weeks=1)
-        if existing_contacts.created_at > one_week_ago:
+        if existing_contacts.created_at.replace(tzinfo=timezone.utc) > one_week_ago:
             return {"message": "Contacts were uploaded recently, skipping update"}
     
     # Delete existing contacts for the user
