@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, select, and_, delete
 from typing import List
+from datetime import datetime, timedelta, timezone
 
 from ..services.database import get_session
 from ..models.user import User, UserPublic
@@ -19,6 +20,17 @@ async def upload_contacts(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
+    # Check if there are any existing contacts
+    existing_contacts = session.exec(
+        select(Contact).where(Contact.user_id == current_user_id)
+    ).first()
+    
+    # If there are existing contacts, check if they're older than one week
+    if existing_contacts:
+        one_week_ago = datetime.now(timezone.utc) - timedelta(weeks=1)
+        if existing_contacts.created_at > one_week_ago:
+            return {"message": "Contacts were uploaded recently, skipping update"}
+    
     # Delete existing contacts for the user
     session.exec(
         delete(Contact).where(Contact.user_id == current_user_id)
