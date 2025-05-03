@@ -108,3 +108,69 @@ async def get_friend_recommendations(
     recommendations_list.sort(key=lambda x: x["mutual_contacts"], reverse=True)
     
     return recommendations_list 
+
+class ContactWithInterest(Contact):
+    interest_score: float = 0
+
+@router.get("/sorted-by-interest", response_model=List[ContactWithInterest])
+async def get_sorted_contacts_by_interest(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Get all contacts for the current user
+    user_contacts = session.exec(
+        select(Contact)
+        .where(Contact.user_id == current_user_id)
+    ).all()
+    
+    if not user_contacts:
+        return []
+    
+    # Get all users who have this contact in their contacts
+    contact_phone_numbers = [contact.phone_number for contact in user_contacts]
+    
+    # Find users who have matching phone numbers in their contacts
+    contact_users = session.exec(
+        select(User, Contact)
+        .join(Contact, Contact.user_id == User.user_id)
+        .where(
+            and_(
+                Contact.phone_number.in_(contact_phone_numbers),
+                User.user_id != current_user_id
+            )
+        )
+    ).all()
+    
+    # Calculate interest score for each contact
+    contact_scores = {}
+    for contact in user_contacts:
+        # Base score starts at 1
+        score = 1.0
+        
+        # Count how many users have this contact
+        matching_users = [user for user, c in contact_users if c.phone_number == contact.phone_number]
+        score += len(matching_users) * 0.5  # Each matching user adds 0.5 to the score
+        
+        # Add bonus for contacts that are already users
+        if any(user.phone_number == contact.phone_number for user, _ in contact_users):
+            score += 2.0
+        
+        contact_scores[contact.contact_id] = score
+    
+    # Sort contacts by interest score
+    sorted_contacts = sorted(
+        user_contacts,
+        key=lambda x: contact_scores.get(x.contact_id, 0),
+        reverse=True
+    )
+    
+    # Add interest scores to the contacts
+    result = []
+    for contact in sorted_contacts:
+        contact_with_score = ContactWithInterest(
+            **contact.dict(),
+            interest_score=contact_scores.get(contact.contact_id, 0)
+        )
+        result.append(contact_with_score)
+    
+    return result 
