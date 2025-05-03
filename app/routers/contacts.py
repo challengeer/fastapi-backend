@@ -162,7 +162,7 @@ async def get_sorted_contacts_by_interest(
         user_contacts,
         key=lambda x: contact_scores.get(x.contact_id, 0),
         reverse=True
-    )[:50]
+    )
     
     # Add interest scores to the contacts
     result = []
