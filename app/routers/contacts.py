@@ -157,20 +157,20 @@ async def get_sorted_contacts_by_interest(
         
         contact_scores[contact.contact_id] = score
     
-    # Sort contacts by interest score
+    # Sort contacts by interest score and limit to 50
     sorted_contacts = sorted(
         user_contacts,
         key=lambda x: contact_scores.get(x.contact_id, 0),
         reverse=True
-    )
+    )[:50]
     
     # Add interest scores to the contacts
     result = []
     for contact in sorted_contacts:
         contact_with_score = ContactWithInterest(
-            **contact.dict(),
+            **contact.model_dump(),
             interest_score=contact_scores.get(contact.contact_id, 0)
         )
         result.append(contact_with_score)
     
-    return result 
+    return result
