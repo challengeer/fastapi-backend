@@ -54,6 +54,7 @@ class RecommendedFriend(UserPublic):
 
 @router.get("/recommendations", response_model=List[RecommendedFriend])
 async def get_friend_recommendations(
+    limit: int | None = None,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
@@ -107,13 +108,18 @@ async def get_friend_recommendations(
     recommendations_list = list(recommendations.values())
     recommendations_list.sort(key=lambda x: x["mutual_contacts"], reverse=True)
     
-    return recommendations_list 
+    # Apply limit if specified
+    if limit is not None:
+        recommendations_list = recommendations_list[:limit]
+    
+    return recommendations_list
 
 class ContactWithInterest(Contact):
     interest_score: float = 0
 
 @router.get("/sorted-by-interest", response_model=List[ContactWithInterest])
 async def get_sorted_contacts_by_interest(
+    limit: int | None = None,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
@@ -163,6 +169,10 @@ async def get_sorted_contacts_by_interest(
         key=lambda x: contact_scores.get(x.contact_id, 0),
         reverse=True
     )
+
+    # Apply limit if specified
+    if limit is not None:
+        sorted_contacts = sorted_contacts[:limit]
     
     # Add interest scores to the contacts
     result = []
