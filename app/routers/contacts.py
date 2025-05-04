@@ -58,13 +58,12 @@ async def get_friend_recommendations(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    # Get user's contacts
-    user_contacts = session.exec(
-        select(Contact.phone_number)
-        .where(Contact.user_id == current_user_id)
-    ).all()
+    # Get current user's phone number
+    current_user = session.exec(
+        select(User).where(User.user_id == current_user_id)
+    ).first()
     
-    if not user_contacts:
+    if not current_user:
         return []
     
     # Get user's existing friends
@@ -77,32 +76,64 @@ async def get_friend_recommendations(
         )
     ).all()
     
-    # Find users who have matching phone numbers in their contacts
-    potential_friends = session.exec(
-        select(User, Contact)
-        .join(Contact, Contact.user_id == User.user_id)
-        .where(
-            and_(
-                Contact.phone_number.in_(user_contacts),
-                User.user_id != current_user_id,
-                User.user_id.notin_(existing_friends)
+    recommendations = {}
+    
+    # Approach 1: Find users who have the current user's phone number in their contacts
+    if current_user.phone_number:
+        potential_friends_1 = session.exec(
+            select(User, Contact)
+            .join(Contact, Contact.user_id == User.user_id)
+            .where(
+                and_(
+                    Contact.phone_number == current_user.phone_number,
+                    User.user_id != current_user_id,
+                    User.user_id.notin_(existing_friends)
+                )
             )
-        )
+        ).all()
+        
+        for user, contact in potential_friends_1:
+            if user.user_id not in recommendations:
+                recommendations[user.user_id] = {
+                    "user_id": user.user_id,
+                    "username": user.username,
+                    "display_name": user.display_name,
+                    "profile_picture": user.profile_picture,
+                    "mutual_contacts": 1
+                }
+            else:
+                recommendations[user.user_id]["mutual_contacts"] += 1
+    
+    # Approach 2: Find users based on current user's contacts
+    user_contacts = session.exec(
+        select(Contact.phone_number)
+        .where(Contact.user_id == current_user_id)
     ).all()
     
-    # Count mutual contacts for each potential friend
-    recommendations = {}
-    for user, contact in potential_friends:
-        if user.user_id not in recommendations:
-            recommendations[user.user_id] = {
-                "user_id": user.user_id,
-                "username": user.username,
-                "display_name": user.display_name,
-                "profile_picture": user.profile_picture,
-                "mutual_contacts": 1
-            }
-        else:
-            recommendations[user.user_id]["mutual_contacts"] += 1
+    if user_contacts:
+        potential_friends_2 = session.exec(
+            select(User, Contact)
+            .join(Contact, Contact.user_id == User.user_id)
+            .where(
+                and_(
+                    Contact.phone_number.in_(user_contacts),
+                    User.user_id != current_user_id,
+                    User.user_id.notin_(existing_friends)
+                )
+            )
+        ).all()
+        
+        for user, contact in potential_friends_2:
+            if user.user_id not in recommendations:
+                recommendations[user.user_id] = {
+                    "user_id": user.user_id,
+                    "username": user.username,
+                    "display_name": user.display_name,
+                    "profile_picture": user.profile_picture,
+                    "mutual_contacts": 1
+                }
+            else:
+                recommendations[user.user_id]["mutual_contacts"] += 1
     
     # Convert to list and sort by mutual contacts
     recommendations_list = list(recommendations.values())
