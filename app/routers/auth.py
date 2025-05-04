@@ -71,7 +71,7 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
 
         # If user doesn't exist, create a new user
         if not user:
-            phone_number = decoded_token.get('phone_number')
+            phone_number = decoded_token.get('phone_number').replace('+', '')
 
             if not phone_number:
                 raise HTTPException(
