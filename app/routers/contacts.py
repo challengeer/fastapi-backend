@@ -8,8 +8,7 @@ from ..models.user import User, UserPublic
 from ..models.contact import Contact, ContactBatchCreate
 from ..models.friendship import Friendship
 from ..services.auth import get_current_user_id
-from ..models.friend_request import FriendRequest
-from ..models.request_status import RequestStatus
+from ..models.friend_request import FriendRequest, RequestStatus
 
 # Constants
 CONTACT_UPLOAD_INTERVAL = timedelta(weeks=1)
