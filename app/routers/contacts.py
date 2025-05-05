@@ -9,10 +9,30 @@ from ..models.contact import Contact, ContactBatchCreate
 from ..models.friendship import Friendship
 from ..services.auth import get_current_user_id
 
+# Constants
+CONTACT_UPLOAD_INTERVAL = timedelta(weeks=1)
+
 router = APIRouter(
     prefix="/contacts",
     tags=["Contacts"]
 )
+
+@router.get("/needs-upload")
+async def check_contacts_upload(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    existing_contacts = session.exec(
+        select(Contact).where(Contact.user_id == current_user_id)
+    ).first()
+    
+    if not existing_contacts:
+        return {"needs_upload": True}
+    
+    last_upload_time = existing_contacts.created_at.replace(tzinfo=timezone.utc)
+    cutoff_time = datetime.now(timezone.utc) - CONTACT_UPLOAD_INTERVAL
+    
+    return {"needs_upload": last_upload_time <= cutoff_time}
 
 @router.post("/upload")
 async def upload_contacts(
@@ -25,11 +45,11 @@ async def upload_contacts(
         select(Contact).where(Contact.user_id == current_user_id)
     ).first()
     
-    # If there are existing contacts, check if they're older than one week
+    # If there are existing contacts, check if they're older than the upload interval
     if existing_contacts:
-        one_week_ago = datetime.now(timezone.utc) - timedelta(weeks=1)
-        if existing_contacts.created_at.replace(tzinfo=timezone.utc) > one_week_ago:
-            return {"message": "Contacts were uploaded recently, skipping update"}
+        cutoff_time = datetime.now(timezone.utc) - CONTACT_UPLOAD_INTERVAL
+        if existing_contacts.created_at.replace(tzinfo=timezone.utc) > cutoff_time:
+            return {"message": "Contacts were uploaded recently, skipping upload"}
     
     # Delete existing contacts for the user
     session.exec(
