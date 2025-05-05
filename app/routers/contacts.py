@@ -183,8 +183,28 @@ async def get_sorted_contacts_by_interest(
     if not user_contacts:
         return []
     
-    # Get all users who have this contact in their contacts
+    # Get phone numbers from contacts
     contact_phone_numbers = [contact.phone_number for contact in user_contacts]
+    
+    # Check which of these phone numbers are registered users
+    registered_phone_numbers = session.exec(
+        select(User.phone_number)
+        .where(
+            and_(
+                User.phone_number.in_(contact_phone_numbers),
+                User.phone_number.isnot(None)
+            )
+        )
+    ).all()
+    
+    # Filter out contacts that are already registered users
+    filtered_contacts = [
+        contact for contact in user_contacts 
+        if contact.phone_number not in registered_phone_numbers
+    ]
+    
+    if not filtered_contacts:
+        return []
     
     # Find users who have matching phone numbers in their contacts
     contact_users = session.exec(
@@ -200,7 +220,7 @@ async def get_sorted_contacts_by_interest(
     
     # Calculate interest score for each contact
     contact_scores = {}
-    for contact in user_contacts:
+    for contact in filtered_contacts:
         # Base score starts at 1
         score = 1.0
         
@@ -208,15 +228,11 @@ async def get_sorted_contacts_by_interest(
         matching_users = [user for user, c in contact_users if c.phone_number == contact.phone_number]
         score += len(matching_users) * 0.5  # Each matching user adds 0.5 to the score
         
-        # Add bonus for contacts that are already users
-        if any(user.phone_number == contact.phone_number for user, _ in contact_users):
-            score += 2.0
-        
         contact_scores[contact.contact_id] = score
     
-    # Sort contacts by interest score and limit to 50
+    # Sort contacts by interest score
     sorted_contacts = sorted(
-        user_contacts,
+        filtered_contacts,
         key=lambda x: contact_scores.get(x.contact_id, 0),
         reverse=True
     )
