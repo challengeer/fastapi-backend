@@ -8,6 +8,8 @@ from ..models.user import User, UserPublic
 from ..models.contact import Contact, ContactBatchCreate
 from ..models.friendship import Friendship
 from ..services.auth import get_current_user_id
+from ..models.friend_request import FriendRequest
+from ..models.request_status import RequestStatus
 
 # Constants
 CONTACT_UPLOAD_INTERVAL = timedelta(weeks=1)
@@ -96,6 +98,17 @@ async def get_friend_recommendations(
         )
     ).all()
     
+    # Get users with pending friend requests
+    pending_requests = session.exec(
+        select(User.user_id)
+        .join(
+            FriendRequest,
+            ((FriendRequest.sender_id == User.user_id) & (FriendRequest.receiver_id == current_user_id)) |
+            ((FriendRequest.receiver_id == User.user_id) & (FriendRequest.sender_id == current_user_id))
+        )
+        .where(FriendRequest.status == RequestStatus.PENDING)
+    ).all()
+    
     recommendations = {}
     
     # Approach 1: Find users who have the current user's phone number in their contacts
@@ -107,7 +120,8 @@ async def get_friend_recommendations(
                 and_(
                     Contact.phone_number == current_user.phone_number,
                     User.user_id != current_user_id,
-                    User.user_id.notin_(existing_friends)
+                    User.user_id.notin_(existing_friends),
+                    User.user_id.notin_(pending_requests)
                 )
             )
         ).all()
@@ -138,7 +152,8 @@ async def get_friend_recommendations(
                 and_(
                     Contact.phone_number.in_(user_contacts),
                     User.user_id != current_user_id,
-                    User.user_id.notin_(existing_friends)
+                    User.user_id.notin_(existing_friends),
+                    User.user_id.notin_(pending_requests)
                 )
             )
         ).all()
