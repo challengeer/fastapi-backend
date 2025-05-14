@@ -41,33 +41,31 @@ async def upload_contacts(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    # Check if there are any existing contacts
+    # Get existing contacts for the user
     existing_contacts = session.exec(
         select(Contact).where(Contact.user_id == current_user_id)
-    ).first()
+    ).all()
     
-    # If there are existing contacts, check if they're older than the upload interval
-    if existing_contacts:
-        cutoff_time = datetime.now(timezone.utc) - CONTACT_UPLOAD_INTERVAL
-        if existing_contacts.created_at.replace(tzinfo=timezone.utc) > cutoff_time:
-            return {"message": "Contacts were uploaded recently, skipping upload"}
+    # Create a set of existing phone numbers for quick lookup
+    existing_phone_numbers = {contact.phone_number for contact in existing_contacts}
     
-    # Delete existing contacts for the user
-    session.exec(
-        delete(Contact).where(Contact.user_id == current_user_id)
-    )
-    
-    # Add new contacts
+    # Add only new contacts
+    new_contacts_added = 0
     for contact in contacts.contacts:
-        new_contact = Contact(
-            user_id=current_user_id,
-            contact_name=contact.contact_name,
-            phone_number=contact.phone_number
-        )
-        session.add(new_contact)
+        if contact.phone_number not in existing_phone_numbers:
+            new_contact = Contact(
+                user_id=current_user_id,
+                contact_name=contact.contact_name,
+                phone_number=contact.phone_number
+            )
+            session.add(new_contact)
+            new_contacts_added += 1
     
     session.commit()
-    return {"message": "Contacts uploaded successfully"}
+    return {
+        "message": f"Added {new_contacts_added} new contacts successfully",
+        "total_contacts": len(existing_contacts) + new_contacts_added
+    }
 
 
 class RecommendedFriend(UserPublic):
