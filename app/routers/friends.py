@@ -29,10 +29,6 @@ class BatchFriendRequestCreate(BaseModel):
 class FriendRequestAction(BaseModel):
     request_id: int
 
-class FriendWithStreak(UserPublic):
-    mutual_streak: int = 0
-    total_mutual_challenges: int = 0
-
 def calculate_mutual_streak(user1_id: int, user2_id: int, session: Session) -> tuple[int, int]:
     # Get dates where both users completed the same challenges
     mutual_submissions = session.exec(
@@ -314,6 +310,10 @@ def reject_friend_request(
     session.refresh(friend_request)
     return friend_request
 
+class FriendWithStreak(UserPublic):
+    mutual_streak: int = 0
+    total_mutual_challenges: int = 0
+
 @router.get("/list", response_model=list[FriendWithStreak])
 def get_friends(
     session: Session = Depends(get_session),
@@ -346,10 +346,9 @@ def get_friends(
 
 class FriendRequestPublic(UserPublic):
     request_id: int
-    status: RequestStatus
 
-@router.get("/requests", response_model=list[FriendRequestPublic])
-def get_friend_requests(session: Session = Depends(get_session), user_id: int = Depends(get_current_user_id)):
+@router.get("/requests/received", response_model=list[FriendRequestPublic])
+def get_received_friend_requests(session: Session = Depends(get_session), user_id: int = Depends(get_current_user_id)):
     statement = (
         select(User, FriendRequest)
             .join(FriendRequest, FriendRequest.sender_id == User.user_id)
@@ -364,8 +363,28 @@ def get_friend_requests(session: Session = Depends(get_session), user_id: int = 
             user_id=user.user_id,
             username=user.username,
             display_name=user.display_name,
-            profile_picture=user.profile_picture,
-            status=request.status
+            profile_picture=user.profile_picture
+        ))
+
+    return friend_requests
+
+@router.get("/requests/sent", response_model=list[FriendRequestPublic])
+def get_sent_friend_requests(session: Session = Depends(get_session), user_id: int = Depends(get_current_user_id)):
+    statement = (
+        select(User, FriendRequest)
+            .join(FriendRequest, FriendRequest.receiver_id == User.user_id)
+            .where((FriendRequest.sender_id == user_id) & (FriendRequest.status == RequestStatus.PENDING))
+    )
+    results = session.exec(statement).all()
+
+    friend_requests = []
+    for user, request in results:
+        friend_requests.append(FriendRequestPublic(
+            request_id=request.request_id,
+            user_id=user.user_id,
+            username=user.username,
+            display_name=user.display_name,
+            profile_picture=user.profile_picture
         ))
 
     return friend_requests
