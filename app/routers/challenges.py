@@ -419,6 +419,66 @@ def get_my_challenges(
     }
 
 
+class UserChallengeHistoryResponse(BaseModel):
+    challenge_id: int
+    title: str
+    description: str
+    emoji: str
+    category: str
+    start_date: datetime
+    end_date: Optional[datetime]
+    status: ChallengeStatus
+    created_at: datetime
+    creator: UserPublic
+    role: str  # "creator" or "participant"
+    has_submitted: bool
+    submission_date: Optional[datetime] = None
+
+@router.get("/history", response_model=List[UserChallengeHistoryResponse])
+def get_user_challenge_history(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Get all challenges where user has an accepted invitation (including ones they created)
+    challenges_query = (
+        select(Challenge, User, ChallengeSubmission)
+        .join(User, User.user_id == Challenge.creator_id)
+        .join(
+            ChallengeInvitation,
+            (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
+            (ChallengeInvitation.receiver_id == current_user_id) &
+            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+        )
+        .outerjoin(
+            ChallengeSubmission,
+            (ChallengeSubmission.challenge_id == Challenge.challenge_id) &
+            (ChallengeSubmission.user_id == current_user_id)
+        )
+        .order_by(Challenge.created_at.desc())
+    )
+    challenges = session.exec(challenges_query).all()
+    
+    result = []
+    for challenge, creator, submission in challenges:
+        result.append({
+            "challenge_id": challenge.challenge_id,
+            "title": challenge.title,
+            "description": challenge.description,
+            "emoji": challenge.emoji,
+            "category": challenge.category,
+            "start_date": challenge.start_date,
+            "end_date": challenge.end_date,
+            "status": challenge.status,
+            "created_at": challenge.created_at,
+            "creator": creator,
+            "role": "creator" if challenge.creator_id == current_user_id else "participant",
+            "has_submitted": submission is not None,
+            "submission_date": submission.submitted_at if submission else None
+        })
+    
+    return result
+
+
 @router.post("/{challenge_id}/submit", response_model=ChallengeSubmission)
 async def submit_challenge_photo(
     challenge_id: int,
@@ -870,63 +930,3 @@ async def delete_challenge(
             # Continue with other deletions even if one fails
     
     return {"message": "Challenge and all related data deleted successfully"}
-
-
-class UserChallengeHistoryResponse(BaseModel):
-    challenge_id: int
-    title: str
-    description: str
-    emoji: str
-    category: str
-    start_date: datetime
-    end_date: Optional[datetime]
-    status: ChallengeStatus
-    created_at: datetime
-    creator: UserPublic
-    role: str  # "creator" or "participant"
-    has_submitted: bool
-    submission_date: Optional[datetime] = None
-
-@router.get("/history", response_model=List[UserChallengeHistoryResponse])
-def get_user_challenge_history(
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    # Get all challenges where user has an accepted invitation (including ones they created)
-    challenges_query = (
-        select(Challenge, User, ChallengeSubmission)
-        .join(User, User.user_id == Challenge.creator_id)
-        .join(
-            ChallengeInvitation,
-            (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
-            (ChallengeInvitation.receiver_id == current_user_id) &
-            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-        )
-        .outerjoin(
-            ChallengeSubmission,
-            (ChallengeSubmission.challenge_id == Challenge.challenge_id) &
-            (ChallengeSubmission.user_id == current_user_id)
-        )
-        .order_by(Challenge.created_at.desc())
-    )
-    challenges = session.exec(challenges_query).all()
-    
-    result = []
-    for challenge, creator, submission in challenges:
-        result.append({
-            "challenge_id": challenge.challenge_id,
-            "title": challenge.title,
-            "description": challenge.description,
-            "emoji": challenge.emoji,
-            "category": challenge.category,
-            "start_date": challenge.start_date,
-            "end_date": challenge.end_date,
-            "status": challenge.status,
-            "created_at": challenge.created_at,
-            "creator": creator,
-            "role": "creator" if challenge.creator_id == current_user_id else "participant",
-            "has_submitted": submission is not None,
-            "submission_date": submission.submitted_at if submission else None
-        })
-    
-    return result
