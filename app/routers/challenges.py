@@ -354,7 +354,7 @@ def get_challenge_invites(
             (ChallengeInvitation.receiver_id == current_user_id) &
             (ChallengeInvitation.status == InvitationStatus.PENDING)
         )
-        .order_by(ChallengeInvitation.created_at.desc())
+        .order_by(ChallengeInvitation.sent_at.desc())
     )
     invitations = session.exec(invitations_query).all()
 
