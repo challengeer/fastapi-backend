@@ -7,7 +7,7 @@ class OverlayType(str, Enum):
     TEXT = "text"
 
 class SubmissionOverlayBase(SQLModel):
-    submission_id: int = Field(foreign_key="challengesubmission.submission_id", index=True)
+    submission_id: int = Field(foreign_key="submission.submission_id", index=True)
     overlay_type: OverlayType = Field(default=OverlayType.TEXT)
     content: str
     x: float
