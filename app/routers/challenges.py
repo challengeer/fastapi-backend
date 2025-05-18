@@ -302,7 +302,7 @@ def get_my_challenges(
             (ChallengeInvitation.receiver_id == current_user_id) &
             (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
         )
-        .order_by(Challenge.created_at.desc())
+        .order_by(Challenge.end_date.desc())
     )
     challenges = session.exec(challenges_query).all()
 
