@@ -278,10 +278,10 @@ def decline_challenge(
 
 
 class ChallengeCompletionStatus(str, Enum):
-    COMPLETED = "completed"
-    NOT_COMPLETED = "not_completed"
-    PENDING = "pending"
+    NOT_STARTED = "not_started"
     IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 class SimpleChallengeResponse(ChallengePublic):
     has_new_submissions: bool
@@ -321,11 +321,15 @@ def get_my_challenges(
             )
         ).first() is not None
 
-        completion_status = (
-            ChallengeCompletionStatus.COMPLETED if has_submitted
-            else ChallengeCompletionStatus.NOT_COMPLETED if not is_owner
-            else ChallengeCompletionStatus.IN_PROGRESS
-        )
+        # Determine completion status based on challenge state and user's submission
+        if has_submitted:
+            completion_status = ChallengeCompletionStatus.COMPLETED
+        elif challenge.end_date < datetime.now(timezone.utc):
+            completion_status = ChallengeCompletionStatus.FAILED
+        elif is_owner:
+            completion_status = ChallengeCompletionStatus.IN_PROGRESS
+        else:
+            completion_status = ChallengeCompletionStatus.NOT_STARTED
 
         challenges_response.append({
             **challenge.model_dump(),
