@@ -9,7 +9,7 @@ from ..models.user import User, UserPublic
 from ..models.friend_request import FriendRequest, RequestStatus
 from ..models.friendship import Friendship
 from ..services.auth import get_current_user_id
-from ..models.challenge_submission import ChallengeSubmission
+from ..models.submission import Submission
 from ..services.notification import NotificationService
 
 router = APIRouter(
@@ -32,12 +32,12 @@ class FriendRequestAction(BaseModel):
 def calculate_mutual_streak(user1_id: int, user2_id: int, session: Session) -> tuple[int, int]:
     # Get dates where both users completed the same challenges
     mutual_submissions = session.exec(
-        select(ChallengeSubmission.challenge_id, ChallengeSubmission.submitted_at)
-        .where(ChallengeSubmission.user_id == user1_id)
+        select(Submission.challenge_id, Submission.submitted_at)
+        .where(Submission.user_id == user1_id)
         .where(
-            ChallengeSubmission.challenge_id.in_(
-                select(ChallengeSubmission.challenge_id)
-                .where(ChallengeSubmission.user_id == user2_id)
+            Submission.challenge_id.in_(
+                select(Submission.challenge_id)
+                .where(Submission.user_id == user2_id)
             )
         )
     ).all()
@@ -45,11 +45,11 @@ def calculate_mutual_streak(user1_id: int, user2_id: int, session: Session) -> t
     user2_submissions = {
         sub.challenge_id: sub.submitted_at.date()
         for sub in session.exec(
-            select(ChallengeSubmission)
+            select(Submission)
             .where(
                 and_(
-                    ChallengeSubmission.user_id == user2_id,
-                    ChallengeSubmission.challenge_id.in_([s.challenge_id for s in mutual_submissions])
+                    Submission.user_id == user2_id,
+                    Submission.challenge_id.in_([s.challenge_id for s in mutual_submissions])
                 )
             )
         ).all()

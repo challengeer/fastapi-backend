@@ -11,7 +11,7 @@ from ..models.friendship import Friendship
 from ..models.friend_request import FriendRequest, RequestStatus
 from ..services.auth import get_current_user_id, validate_username
 from ..services.s3 import upload_image, extract_key_from_url, delete_file
-from ..models.challenge_submission import ChallengeSubmission
+from ..models.submission import Submission
 from ..services.notification import NotificationService
 
 router = APIRouter(
@@ -186,9 +186,9 @@ def read_user(
     
     # Get challenge completion dates and count
     completion_dates = session.exec(
-        select(ChallengeSubmission.submitted_at)
-        .where(ChallengeSubmission.user_id == user_id)
-        .order_by(ChallengeSubmission.submitted_at.desc())
+        select(Submission.submitted_at)
+        .where(Submission.user_id == user_id)
+        .order_by(Submission.submitted_at.desc())
     ).all()
     
     user_dict["challenge_completion_dates"] = completion_dates
