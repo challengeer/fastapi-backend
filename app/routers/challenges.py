@@ -10,7 +10,7 @@ from ..models.user import User, UserPublic
 from ..models.challenge import Challenge, ChallengeStatus
 from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.submission import Submission
-from ..models.submission_overlay import SubmissionOverlay
+from ..models.submission_overlay import SubmissionOverlay, SubmissionOverlayBase
 from ..models.submission_view import SubmissionView
 from ..services.auth import get_current_user_id
 from ..services.s3 import upload_image, delete_file, extract_key_from_url
@@ -51,7 +51,6 @@ class SubmissionResponse(BaseModel):
     challenge_id: int
     user_id: int
     photo_url: str
-    caption: Optional[str]
     submitted_at: datetime
     user: UserPublic
     is_new: bool = False
@@ -289,13 +288,7 @@ class SimpleChallengeResponse(ChallengePublic):
     completion_status: ChallengeCompletionStatus
     is_owner: bool
 
-class ChallengesListResponse(BaseModel):
-    challenges: List[SimpleChallengeResponse]
-
-class ChallengeInvitesResponse(BaseModel):
-    invitations: List[SimpleInviteResponse]
-
-@router.get("/list", response_model=ChallengesListResponse)
+@router.get("/list", response_model=List[SimpleChallengeResponse])
 def get_my_challenges(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
@@ -343,7 +336,7 @@ def get_my_challenges(
 
     return {"challenges": challenges_response}
 
-@router.get("/invites", response_model=ChallengeInvitesResponse)
+@router.get("/invites", response_model=List[SimpleInviteResponse])
 def get_challenge_invites(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
@@ -485,13 +478,11 @@ def remove_participant(
     return {"message": "Participant removed successfully"}
 
 
-
-
 @router.post("/{challenge_id}/submit", response_model=Submission)
 async def submit_challenge_photo(
     challenge_id: int,
     file: UploadFile = File(...),
-    overlays: Optional[List[OverlayBase]] = None,
+    overlays: Optional[List[SubmissionOverlayBase]] = None,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):

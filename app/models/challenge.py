@@ -3,11 +3,6 @@ from typing import Optional
 from datetime import datetime, timezone
 from enum import Enum
 
-class ChallengeStatus(str, Enum):
-    ACTIVE = "active"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-
 class ChallengeBase(SQLModel):
     creator_id: int = Field(foreign_key="user.user_id", index=True)
     title: str = Field(max_length=200)
@@ -22,3 +17,6 @@ class ChallengeBase(SQLModel):
 
 class Challenge(ChallengeBase, table=True):
     challenge_id: Optional[int] = Field(default=None, primary_key=True)
+
+class ChallengePublic(ChallengeBase):
+    pass
