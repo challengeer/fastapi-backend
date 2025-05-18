@@ -338,7 +338,7 @@ def get_my_challenges(
             "is_owner": is_owner
         })
 
-    return {"challenges": challenges_response}
+    return challenges_response
 
 @router.get("/invites", response_model=List[SimpleInviteResponse])
 def get_challenge_invites(
@@ -367,7 +367,7 @@ def get_challenge_invites(
             "sender": sender
         })
 
-    return {"invitations": invitations_response}
+    return invitations_response
 
 
 class UserChallengeHistoryResponse(ChallengePublic):
