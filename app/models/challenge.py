@@ -1,7 +1,6 @@
 from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime, timezone
-from enum import Enum
 
 class ChallengeBase(SQLModel):
     creator_id: int = Field(foreign_key="user.user_id", index=True)

@@ -7,7 +7,7 @@ from enum import Enum
 
 from ..services.database import get_session
 from ..models.user import User, UserPublic
-from ..models.challenge import Challenge, ChallengeStatus
+from ..models.challenge import Challenge
 from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.submission import Submission
 from ..models.submission_overlay import SubmissionOverlay, SubmissionOverlayBase
@@ -161,7 +161,7 @@ async def invite_to_challenge(
         raise HTTPException(status_code=404, detail="Challenge not found")
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only challenge creator can send invites")
-    if challenge.status != ChallengeStatus.ACTIVE:
+    if challenge.end_date < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Can only invite to active challenges")
 
     # Get sender's name
@@ -229,8 +229,8 @@ async def accept_challenge(
 
     # Check if challenge is still active
     challenge = session.get(Challenge, invitation.challenge_id)
-    if not challenge or challenge.status != ChallengeStatus.ACTIVE:
-        raise HTTPException(status_code=400, detail="Challenge is not active")
+    if not challenge or challenge.end_date < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Challenge has ended")
     
     # Get accepter info for notification
     accepter = session.get(User, current_user_id)
@@ -428,7 +428,7 @@ def remove_participant(
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only the challenge creator can remove participants")
     
-    if challenge.status != ChallengeStatus.ACTIVE:
+    if challenge.end_date < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Can only modify active challenges")
 
     # Get the invitation
@@ -490,8 +490,8 @@ async def submit_challenge_photo(
     challenge = session.get(Challenge, challenge_id)
     if not challenge:
         raise HTTPException(status_code=404, detail="Challenge not found")
-    if challenge.status != ChallengeStatus.ACTIVE:
-        raise HTTPException(status_code=400, detail="Challenge is not active")
+    if challenge.end_date < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Challenge has ended")
 
     # Check if user has accepted invitation
     invitation = session.exec(
@@ -683,7 +683,6 @@ class ChallengeResponse(BaseModel):
     category: str
     start_date: datetime
     end_date: Optional[datetime]
-    status: ChallengeStatus
     created_at: datetime
     activity_duration_minutes: Optional[int]
     creator: Participant
@@ -790,7 +789,7 @@ def update_challenge_title(
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only the challenge creator can update the title")
     
-    if challenge.status != ChallengeStatus.ACTIVE:
+    if challenge.end_date < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Can only update active challenges")
 
     # Update title
@@ -821,7 +820,7 @@ def update_challenge_description(
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only the challenge creator can update the description")
     
-    if challenge.status != ChallengeStatus.ACTIVE:
+    if challenge.end_date < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Can only update active challenges")
 
     # Update description
