@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select, delete
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 from ..services.database import get_session
@@ -23,6 +23,19 @@ router = APIRouter(
 # Initialize notification service
 notification_service = NotificationService()
 
+def has_new_submissions(session: Session, challenge_id: int, current_user_id: int) -> bool:
+    return session.exec(
+        select(1)
+        .where(
+            (ChallengeSubmission.challenge_id == challenge_id) &
+            (ChallengeSubmission.user_id != current_user_id) &
+            ~ChallengeSubmission.submission_id.in_(
+                select(SubmissionView.submission_id)
+                .where(SubmissionView.viewer_id == current_user_id)
+            )
+        )
+        .limit(1)
+    ).first() is not None
 
 class UserChallengeStatus(str, Enum):
     PARTICIPANT = "participant"
@@ -54,6 +67,7 @@ class ChallengePublic(BaseModel):
     emoji: str
     category: str
     end_date: Optional[datetime]
+    duration: Optional[int]
 
 class SimpleInviteResponse(ChallengePublic):
     invitation_id: int
@@ -65,6 +79,8 @@ class ChallengeCreate(BaseModel):
     description: Optional[str] = None
     emoji: Optional[str] = "🎯"
     category: str
+    lifetime: Optional[int] = 48  # How long the challenge is open (in hours)
+    duration: Optional[int] = 30  # How long users should spend doing the activity (in minutes)
 
 @router.post("/create", response_model=Challenge)
 def create_challenge(
@@ -72,8 +88,30 @@ def create_challenge(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
+    if challenge.lifetime <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Lifetime must be greater than 0 hours"
+        )
+    if challenge.lifetime > 168:  # 168 hours in hours
+        raise HTTPException(
+            status_code=400,
+            detail="Lifetime cannot exceed 168 hours"
+        )
+    
     start_date = datetime.now()
-    end_date = start_date + timedelta(days=2)
+    end_date = start_date + timedelta(hours=challenge.lifetime)
+
+    if challenge.duration <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Duration must be greater than 0 minutes"
+        )
+    if challenge.duration > 1440:  # 24 hours in minutes
+        raise HTTPException(
+            status_code=400,
+            detail="Duration cannot exceed 24 hours (1440 minutes)"
+        )
 
     new_challenge = Challenge(
         creator_id=current_user_id,
@@ -82,7 +120,9 @@ def create_challenge(
         emoji=challenge.emoji,
         category=challenge.category,
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        duration=challenge.duration,
+        lifetime=challenge.lifetime
     )
     session.add(new_challenge)
     session.flush()  # Get the challenge_id
@@ -165,74 +205,6 @@ async def invite_to_challenge(
 
     session.commit()
     return {"message": f"Sent {len(invitations)} invitations"}
-
-
-class RemoveParticipantRequest(BaseModel):
-    challenge_id: int
-    participant_id: int
-
-@router.post("/remove-participant")
-def remove_participant(
-    request: RemoveParticipantRequest,
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    # Get challenge and verify ownership
-    challenge = session.get(Challenge, request.challenge_id)
-    if not challenge:
-        raise HTTPException(status_code=404, detail="Challenge not found")
-    
-    if challenge.creator_id != current_user_id:
-        raise HTTPException(status_code=403, detail="Only the challenge creator can remove participants")
-    
-    if challenge.status != ChallengeStatus.ACTIVE:
-        raise HTTPException(status_code=400, detail="Can only modify active challenges")
-
-    # Get the invitation
-    invitation = session.exec(
-        select(ChallengeInvitation)
-        .where(
-            (ChallengeInvitation.challenge_id == request.challenge_id) &
-            (ChallengeInvitation.receiver_id == request.participant_id) &
-            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-        )
-    ).first()
-
-    if not invitation:
-        raise HTTPException(status_code=404, detail="Participant not found in this challenge")
-
-    # Update invitation status
-    invitation.status = InvitationStatus.DECLINED
-    invitation.responded_at = datetime.now()
-    session.add(invitation)
-
-    # Delete their submission and submission views if they exist
-    submission = session.exec(
-        select(ChallengeSubmission)
-        .where(
-            (ChallengeSubmission.challenge_id == request.challenge_id) &
-            (ChallengeSubmission.user_id == request.participant_id)
-        )
-    ).first()
-
-    if submission:
-        # Delete submission views
-        session.exec(
-            delete(SubmissionView)
-            .where(SubmissionView.submission_id == submission.submission_id)
-        )
-        
-        # Delete the photo from S3
-        try:
-            delete_file(extract_key_from_url(submission.photo_url))
-        except Exception as e:
-            print(f"Failed to delete S3 photo {submission.photo_url}: {e}")
-
-        # Delete the submission
-        session.delete(submission)
-
-    session.commit()
-    return {"message": "Participant removed successfully"}
 
 
 class ChallengeInviteAction(BaseModel):
@@ -350,17 +322,7 @@ def get_my_challenges(
     participating_challenges = []
     
     for challenge, submission_id in all_challenges:
-        new_submissions_exist = session.exec(
-            select(ChallengeSubmission)
-            .where(
-                (ChallengeSubmission.challenge_id == challenge.challenge_id) &
-                (ChallengeSubmission.user_id != current_user_id) &
-                ~ChallengeSubmission.submission_id.in_(
-                    select(SubmissionView.submission_id)
-                    .where(SubmissionView.viewer_id == current_user_id)
-                )
-            )
-        ).first() is not None
+        new_submissions_exist = has_new_submissions(session, challenge.challenge_id, current_user_id)
 
         # Determine completion status
         if submission_id is not None:
@@ -378,6 +340,8 @@ def get_my_challenges(
             "emoji": challenge.emoji,
             "category": challenge.category,
             "end_date": challenge.end_date,
+            "duration": challenge.duration,
+            "activity_duration_minutes": challenge.activity_duration_minutes,
             "has_new_submissions": new_submissions_exist,
             "completion_status": completion_status
         }
@@ -409,6 +373,7 @@ def get_my_challenges(
             "emoji": challenge.emoji,
             "category": challenge.category,
             "end_date": challenge.end_date,
+            "activity_duration_minutes": challenge.activity_duration_minutes,
             "sender": sender
         })
     
@@ -419,20 +384,9 @@ def get_my_challenges(
     }
 
 
-class UserChallengeHistoryResponse(BaseModel):
-    challenge_id: int
-    title: str
-    description: str
-    emoji: str
-    category: str
-    start_date: datetime
-    end_date: Optional[datetime]
-    status: ChallengeStatus
-    created_at: datetime
-    creator: UserPublic
-    role: str  # "creator" or "participant"
+class UserChallengeHistoryResponse(ChallengePublic):
     has_submitted: bool
-    submission_date: Optional[datetime] = None
+    has_new_submissions: bool
 
 @router.get("/history", response_model=List[UserChallengeHistoryResponse])
 def get_user_challenge_history(
@@ -454,29 +408,92 @@ def get_user_challenge_history(
             (ChallengeSubmission.challenge_id == Challenge.challenge_id) &
             (ChallengeSubmission.user_id == current_user_id)
         )
+        .where(Challenge.end_date < datetime.now(timezone.utc))  # Only get challenges that have ended
         .order_by(Challenge.created_at.desc())
     )
     challenges = session.exec(challenges_query).all()
     
     result = []
     for challenge, creator, submission in challenges:
+        # Check for new submissions
+        new_submissions_exist = has_new_submissions(session, challenge.challenge_id, current_user_id)
+        
         result.append({
-            "challenge_id": challenge.challenge_id,
-            "title": challenge.title,
-            "description": challenge.description,
-            "emoji": challenge.emoji,
-            "category": challenge.category,
-            "start_date": challenge.start_date,
-            "end_date": challenge.end_date,
-            "status": challenge.status,
-            "created_at": challenge.created_at,
+            **challenge.model_dump(),
             "creator": creator,
-            "role": "creator" if challenge.creator_id == current_user_id else "participant",
             "has_submitted": submission is not None,
-            "submission_date": submission.submitted_at if submission else None
+            "has_new_submissions": new_submissions_exist
         })
     
     return result
+
+
+class RemoveParticipantRequest(BaseModel):
+    challenge_id: int
+    participant_id: int
+
+@router.post("/remove-participant")
+def remove_participant(
+    request: RemoveParticipantRequest,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Get challenge and verify ownership
+    challenge = session.get(Challenge, request.challenge_id)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    
+    if challenge.creator_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Only the challenge creator can remove participants")
+    
+    if challenge.status != ChallengeStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Can only modify active challenges")
+
+    # Get the invitation
+    invitation = session.exec(
+        select(ChallengeInvitation)
+        .where(
+            (ChallengeInvitation.challenge_id == request.challenge_id) &
+            (ChallengeInvitation.receiver_id == request.participant_id) &
+            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+        )
+    ).first()
+
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Participant not found in this challenge")
+
+    # Update invitation status
+    invitation.status = InvitationStatus.DECLINED
+    invitation.responded_at = datetime.now()
+    session.add(invitation)
+
+    # Delete their submission and submission views if they exist
+    submission = session.exec(
+        select(ChallengeSubmission)
+        .where(
+            (ChallengeSubmission.challenge_id == request.challenge_id) &
+            (ChallengeSubmission.user_id == request.participant_id)
+        )
+    ).first()
+
+    if submission:
+        # Delete submission views
+        session.exec(
+            delete(SubmissionView)
+            .where(SubmissionView.submission_id == submission.submission_id)
+        )
+        
+        # Delete the photo from S3
+        try:
+            delete_file(extract_key_from_url(submission.photo_url))
+        except Exception as e:
+            print(f"Failed to delete S3 photo {submission.photo_url}: {e}")
+
+        # Delete the submission
+        session.delete(submission)
+
+    session.commit()
+    return {"message": "Participant removed successfully"}
 
 
 @router.post("/{challenge_id}/submit", response_model=ChallengeSubmission)
@@ -654,49 +671,6 @@ async def get_challenge_submissions(
     return submissions
 
 
-@router.get("/{challenge_id}/has-new", response_model=bool)
-async def check_new_submissions(
-    challenge_id: int,
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    """Check if there are any new submissions in the challenge that the user hasn't seen."""
-    
-    # First verify user is participant
-    if not session.exec(
-        select(Challenge)
-        .where(
-            (Challenge.challenge_id == challenge_id) &
-            (
-                (Challenge.creator_id == current_user_id) |
-                Challenge.challenge_id.in_(
-                    select(ChallengeInvitation.challenge_id)
-                    .where(
-                        (ChallengeInvitation.receiver_id == current_user_id) &
-                        (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-                    )
-                )
-            )
-        )
-    ).first():
-        raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
-
-    # Check for new submissions
-    new_submissions = session.exec(
-        select(ChallengeSubmission)
-        .where(
-            (ChallengeSubmission.challenge_id == challenge_id) &
-            (ChallengeSubmission.user_id != current_user_id) &
-            ~ChallengeSubmission.submission_id.in_(
-                select(SubmissionView.submission_id)
-                .where(SubmissionView.viewer_id == current_user_id)
-            )
-        )
-    ).first()
-
-    return new_submissions is not None
-
-
 class Participant(UserPublic):
     has_submitted: bool
 
@@ -711,6 +685,7 @@ class ChallengeResponse(BaseModel):
     end_date: Optional[datetime]
     status: ChallengeStatus
     created_at: datetime
+    activity_duration_minutes: Optional[int]
     creator: Participant
     participants: List[Participant]
     has_new_submissions: bool
@@ -783,18 +758,7 @@ def get_challenge_details(
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
     # Check for new submissions efficiently
-    new_submissions_exist = session.exec(
-        select(1)
-        .where(
-            (ChallengeSubmission.challenge_id == challenge_id) &
-            (ChallengeSubmission.user_id != current_user_id) &
-            ~ChallengeSubmission.submission_id.in_(
-                select(SubmissionView.submission_id)
-                .where(SubmissionView.viewer_id == current_user_id)
-            )
-        )
-        .limit(1)
-    ).first() is not None
+    new_submissions_exist = has_new_submissions(session, challenge_id, current_user_id)
 
     return {
         **challenge.model_dump(),

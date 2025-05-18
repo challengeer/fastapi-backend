@@ -14,9 +14,10 @@ class ChallengeBase(SQLModel):
     description: str = Field(max_length=1000)
     emoji: str = Field(max_length=10)
     category: str = Field(max_length=100)
-    start_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    end_date: Optional[datetime] = None
-    status: ChallengeStatus = Field(default=ChallengeStatus.ACTIVE)
+    start_date: datetime
+    end_date: datetime
+    duration: Optional[int] = 30  # How long users should spend doing the activity (in minutes)
+    lifetime: Optional[int] = 48  # How long the challenge is open (in hours)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Challenge(ChallengeBase, table=True):
