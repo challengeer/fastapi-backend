@@ -308,6 +308,8 @@ def get_my_challenges(
 
     # Process challenges
     challenges_response = []
+    current_time = datetime.now(timezone.utc)
+    
     for challenge in challenges:
         has_new = has_new_submissions(session, challenge.challenge_id, current_user_id)
         is_owner = challenge.creator_id == current_user_id
@@ -324,7 +326,7 @@ def get_my_challenges(
         # Determine completion status based on challenge state and user's submission
         if has_submitted:
             completion_status = ChallengeCompletionStatus.COMPLETED
-        elif challenge.end_date < datetime.now(timezone.utc):
+        elif challenge.end_date.replace(tzinfo=timezone.utc) < current_time:
             completion_status = ChallengeCompletionStatus.FAILED
         elif is_owner:
             completion_status = ChallengeCompletionStatus.IN_PROGRESS
