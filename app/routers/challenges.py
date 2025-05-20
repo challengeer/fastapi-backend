@@ -100,7 +100,7 @@ def create_challenge(
             detail="Lifetime cannot exceed 168 hours"
         )
     
-    start_date = datetime.now()
+    start_date = datetime.now(timezone.utc)
     end_date = start_date + timedelta(hours=challenge.lifetime)
 
     if challenge.duration <= 0:
@@ -134,7 +134,7 @@ def create_challenge(
         sender_id=current_user_id,
         receiver_id=current_user_id,
         status=InvitationStatus.ACCEPTED,
-        responded_at=datetime.now()
+        responded_at=datetime.now(timezone.utc)
     )
     session.add(creator_invitation)
     
@@ -236,7 +236,7 @@ async def accept_challenge(
     accepter = session.get(User, current_user_id)
     
     invitation.status = InvitationStatus.ACCEPTED
-    invitation.responded_at = datetime.now()
+    invitation.responded_at = datetime.now(timezone.utc)
     session.add(invitation)
     
     # Send notification to challenge creator
@@ -270,7 +270,7 @@ def decline_challenge(
         raise HTTPException(status_code=400, detail="Invitation is not pending")
     
     invitation.status = InvitationStatus.DECLINED
-    invitation.responded_at = datetime.now()
+    invitation.responded_at = datetime.now(timezone.utc)
     session.add(invitation)
     session.commit()
     session.refresh(invitation)
@@ -302,7 +302,7 @@ def get_my_challenges(
             (ChallengeInvitation.receiver_id == current_user_id) &
             (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
         )
-        .order_by(Challenge.end_date.desc())
+        .order_by(Challenge.end_date)
     )
     challenges = session.exec(challenges_query).all()
 
@@ -450,7 +450,7 @@ def remove_participant(
 
     # Update invitation status
     invitation.status = InvitationStatus.DECLINED
-    invitation.responded_at = datetime.now()
+    invitation.responded_at = datetime.now(timezone.utc)
     session.add(invitation)
 
     # Delete their submission and submission views if they exist
