@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+import json
 
 from ..services.database import get_session
 from ..models.user import User, UserPublic
@@ -499,7 +500,7 @@ def remove_participant(
 async def submit_challenge_photo(
     challenge_id: int,
     file: UploadFile = File(...),
-    overlays: Optional[List[SubmissionOverlayCreate]] = None,
+    overlays: Optional[str] = None,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
@@ -548,6 +549,14 @@ async def submit_challenge_photo(
         height=1920
     )
 
+    # Parse overlays if provided
+    overlay_list = None
+    if overlays:
+        try:
+            overlay_list = json.loads(overlays)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid overlays JSON format")
+
     # Create submission
     submission = Submission(
         challenge_id=challenge_id,
@@ -558,11 +567,11 @@ async def submit_challenge_photo(
     session.flush()  # Get the submission_id
 
     # Add overlays if any
-    if overlays:
-        for overlay_data in overlays:
+    if overlay_list:
+        for overlay_data in overlay_list:
             overlay = SubmissionOverlay(
                 submission_id=submission.submission_id,
-                **overlay_data.model_dump()
+                **overlay_data
             )
             session.add(overlay)
 
