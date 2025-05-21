@@ -10,7 +10,7 @@ from ..models.user import User, UserPublic
 from ..models.challenge import Challenge
 from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.submission import Submission
-from ..models.submission_overlay import SubmissionOverlay, SubmissionOverlayBase
+from ..models.submission_overlay import SubmissionOverlay, SubmissionOverlayCreate
 from ..models.submission_view import SubmissionView
 from ..services.auth import get_current_user_id
 from ..services.s3 import upload_image, delete_file, extract_key_from_url
@@ -499,7 +499,7 @@ def remove_participant(
 async def submit_challenge_photo(
     challenge_id: int,
     file: UploadFile = File(...),
-    overlays: Optional[List[SubmissionOverlayBase]] = None,
+    overlays: Optional[List[SubmissionOverlayCreate]] = None,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
