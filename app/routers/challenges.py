@@ -147,6 +147,12 @@ class ChallengeInviteCreate(BaseModel):
     challenge_id: int
     receiver_ids: List[int]
 
+def is_challenge_ended(challenge_end_date: datetime) -> bool:
+    """Helper function to check if a challenge has ended, handling timezone-aware comparisons."""
+    if challenge_end_date.tzinfo is None:
+        challenge_end_date = challenge_end_date.replace(tzinfo=timezone.utc)
+    return challenge_end_date < datetime.now(timezone.utc)
+
 @router.post("/invite")
 async def invite_to_challenge(
     invite: ChallengeInviteCreate,
@@ -161,7 +167,7 @@ async def invite_to_challenge(
         raise HTTPException(status_code=404, detail="Challenge not found")
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only challenge creator can send invites")
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only invite to active challenges")
 
     # Get sender's name
@@ -229,7 +235,7 @@ async def accept_challenge(
 
     # Check if challenge is still active
     challenge = session.get(Challenge, invitation.challenge_id)
-    if not challenge or challenge.end_date < datetime.now(timezone.utc):
+    if not challenge or is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Challenge has ended")
     
     # Get accepter info for notification
@@ -439,7 +445,7 @@ def remove_participant(
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only the challenge creator can remove participants")
     
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only modify active challenges")
 
     # Get the invitation
@@ -799,7 +805,7 @@ def update_challenge_title(
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only the challenge creator can update the title")
     
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only update active challenges")
 
     # Update title
@@ -830,7 +836,7 @@ def update_challenge_description(
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only the challenge creator can update the description")
     
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only update active challenges")
 
     # Update description
