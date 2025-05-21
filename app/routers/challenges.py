@@ -566,6 +566,8 @@ async def submit_challenge_photo(
     session.add(submission)
     session.flush()  # Get the submission_id
 
+    print(overlay_list)
+
     # Add overlays if any
     if overlay_list:
         for overlay_data in overlay_list:
