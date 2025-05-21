@@ -17,6 +17,9 @@ from ..services.auth import get_current_user_id
 from ..services.s3 import upload_image, delete_file, extract_key_from_url
 from ..services.notification import NotificationService
 
+# Constants
+MAX_SUBMISSIONS_PER_USER = 5
+
 router = APIRouter(
     prefix="/challenges",
     tags=["Challenges"]
@@ -521,16 +524,20 @@ async def submit_challenge_photo(
     if not invitation:
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
-    # Check if user already submitted
-    existing_submission = session.exec(
+    # Check number of existing submissions
+    submission_count = session.exec(
         select(Submission)
         .where(
             (Submission.challenge_id == challenge_id) &
             (Submission.user_id == current_user_id)
         )
-    ).first()
-    if existing_submission:
-        raise HTTPException(status_code=400, detail="You have already submitted to this challenge")
+    ).count()
+    
+    if submission_count >= MAX_SUBMISSIONS_PER_USER:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"You have reached the maximum limit of {MAX_SUBMISSIONS_PER_USER} submissions for this challenge"
+        )
 
     # Validate file type
     if not file.content_type.startswith('image/'):
@@ -542,7 +549,7 @@ async def submit_challenge_photo(
     photo_url = await upload_image(
         file_content,  # Pass the bytes content instead of the file object
         folder=f"challenge-submissions/{challenge_id}",
-        identifier=str(current_user_id),
+        identifier=f"{current_user_id}_{submission_count + 1}",  # Add submission number to identifier
         width=1080,
         height=1920
     )
@@ -633,7 +640,7 @@ async def get_challenge_submissions(
     if not is_participant:
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
-    # Check if user has submitted
+    # Check if user has at least one submission
     has_submitted = session.exec(
         select(Submission)
         .where(
@@ -645,7 +652,7 @@ async def get_challenge_submissions(
     if not has_submitted:
         raise HTTPException(
             status_code=403, 
-            detail="You must submit your photo before viewing other submissions"
+            detail="You must submit at least one photo before viewing other submissions"
         )
 
     # Get all submissions with user information and view status
@@ -658,6 +665,7 @@ async def get_challenge_submissions(
             (SubmissionView.viewer_id == current_user_id)
         )
         .where(Submission.challenge_id == challenge_id)
+        .order_by(Submission.submitted_at.desc())  # Order by submission time, newest first
     )
     results = session.exec(statement).all()
 
@@ -696,7 +704,7 @@ async def get_challenge_submissions(
 
 
 class Participant(UserPublic):
-    has_submitted: bool
+    submission_count: int
 
 class ChallengeResponse(BaseModel):
     challenge_id: int
@@ -713,6 +721,7 @@ class ChallengeResponse(BaseModel):
     has_new_submissions: bool
     user_status: UserChallengeStatus
     invitation_id: Optional[int] = None
+    submission_count: Optional[int] = None  # Add current user's submission count
 
 @router.get("/{challenge_id}", response_model=ChallengeResponse)
 def get_challenge_details(
@@ -724,12 +733,12 @@ def get_challenge_details(
     if not challenge:
         raise HTTPException(status_code=404, detail="Challenge not found")
 
-    # Get all participants and their submissions in a single query
+    # Get all participants and their submission counts in a single query
     participants_query = (
         select(
             User,
             ChallengeInvitation,
-            Submission.submission_id.label("has_submitted")
+            Submission.submission_id.count().label("submission_count")
         )
         .join(
             ChallengeInvitation,
@@ -742,6 +751,7 @@ def get_challenge_details(
             (Submission.challenge_id == challenge_id)
         )
         .where(ChallengeInvitation.challenge_id == challenge_id)
+        .group_by(User.user_id, ChallengeInvitation.invitation_id)
     )
     participant_results = session.exec(participants_query).all()
 
@@ -750,10 +760,12 @@ def get_challenge_details(
     participants = []
     user_status = None
     invitation_id = None
-    for user, invitation, submission_id in participant_results:
+    current_user_submission_count = 0
+
+    for user, invitation, submission_count in participant_results:
         user_dict = {
             **user.model_dump(),
-            "has_submitted": submission_id is not None
+            "submission_count": submission_count or 0
         }
         
         if user.user_id == challenge.creator_id:
@@ -762,8 +774,9 @@ def get_challenge_details(
             participants.append(user_dict)
         
         if user.user_id == current_user_id:
+            current_user_submission_count = submission_count or 0
             # Determine user status and invitation_id
-            if submission_id:
+            if submission_count > 0:
                 user_status = UserChallengeStatus.SUBMITTED
             elif challenge.creator_id == current_user_id:
                 user_status = UserChallengeStatus.PARTICIPANT
@@ -788,7 +801,8 @@ def get_challenge_details(
         "participants": participants,
         "has_new_submissions": new_submissions_exist,
         "user_status": user_status,
-        "invitation_id": invitation_id
+        "invitation_id": invitation_id,
+        "submission_count": current_user_submission_count
     }
 
 
