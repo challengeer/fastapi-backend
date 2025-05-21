@@ -78,13 +78,7 @@ class SearchUser(UserPublic):
     request_id: Optional[int]
     friendship_status: FriendshipStatus
 
-class SearchUsersResponse(BaseModel):
-    friends: list[SearchUser]
-    request_sent: list[SearchUser]
-    request_received: list[SearchUser]
-    none: list[SearchUser]
-
-@router.get("/search", response_model=SearchUsersResponse)
+@router.get("/search", response_model=List[UserPublic])
 def search_users(
     q: str = "",
     skip: int = 0,
@@ -92,61 +86,28 @@ def search_users(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
+    # If query is empty, return empty results
+    if not q:
+        return []
+
     statement = (
-        select(User, Friendship, FriendRequest)
-        .outerjoin(
-            Friendship,
-            ((Friendship.user1_id == User.user_id) & (Friendship.user2_id == current_user_id)) |
-            ((Friendship.user2_id == User.user_id) & (Friendship.user1_id == current_user_id))
-        )
-        .outerjoin(
-            FriendRequest,
-            (FriendRequest.receiver_id == User.user_id) & (FriendRequest.sender_id == current_user_id) |
-            (FriendRequest.receiver_id == current_user_id) & (FriendRequest.sender_id == User.user_id)
-        )
+        select(User)
         .where(
-            (User.display_name.like(f"%{q}%")) | (User.username.like(f"%{q}%"))
+            (User.display_name.ilike(f"%{q}%")) | (User.username.ilike(f"%{q}%"))
         )
         .offset(skip)
         .limit(limit)
     )
     
     results = session.exec(statement).all()
+    users = []
     
-    categorized_users = {
-        "friends": [],
-        "request_sent": [],
-        "request_received": [],
-        "none": []
-    }
-    
-    for user, friendship, request in results:
+    for user in results:
         if user.user_id == current_user_id:
             continue  # Skip the current user
-            
-        user_dict = user.model_dump()
-        if friendship:
-            user_dict["request_id"] = None
-            user_dict["friendship_status"] = FriendshipStatus.FRIENDS
-            categorized_users["friends"].append(user_dict)
-        elif request:
-            user_dict["request_id"] = request.request_id
-            if request.status == RequestStatus.PENDING:
-                if request.sender_id == current_user_id:
-                    user_dict["friendship_status"] = FriendshipStatus.REQUEST_SENT
-                    categorized_users["request_sent"].append(user_dict)
-                else:
-                    user_dict["friendship_status"] = FriendshipStatus.REQUEST_RECEIVED
-                    categorized_users["request_received"].append(user_dict)
-            elif request.status == RequestStatus.REJECTED:
-                user_dict["friendship_status"] = FriendshipStatus.NONE
-                categorized_users["none"].append(user_dict)
-        else:
-            user_dict["request_id"] = None
-            user_dict["friendship_status"] = FriendshipStatus.NONE
-            categorized_users["none"].append(user_dict)
+        users.append(user)
     
-    return categorized_users
+    return users
 
 
 class UserProfile(UserPublic):
