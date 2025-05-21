@@ -11,7 +11,7 @@ from ..models.user import User, UserPublic
 from ..models.challenge import Challenge
 from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.submission import Submission
-from ..models.submission_overlay import SubmissionOverlay, SubmissionOverlayCreate
+from ..models.submission_overlay import SubmissionOverlay, SubmissionOverlayPublic
 from ..models.submission_view import SubmissionView
 from ..services.auth import get_current_user_id
 from ..services.s3 import upload_image, delete_file, extract_key_from_url
@@ -55,7 +55,7 @@ class SubmissionResponse(BaseModel):
     submitted_at: datetime
     user: UserPublic
     is_new: bool = False
-    overlays: List[SubmissionOverlay] = []
+    overlays: List[SubmissionOverlayPublic] = []
 
 class ChallengeInviteResponse(BaseModel):
     invitation_id: int

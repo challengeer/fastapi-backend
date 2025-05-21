@@ -22,3 +22,6 @@ class SubmissionOverlayCreate(SubmissionOverlayBase):
     content: str
     x: float
     y: float
+
+class SubmissionOverlayPublic(SubmissionOverlayBase):
+    overlay_id: int
