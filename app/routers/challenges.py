@@ -674,14 +674,10 @@ async def get_challenge_submissions(
             .order_by(SubmissionOverlay.created_at)
         ).all()
 
-        print(overlays)
-
         submission_dict = submission.model_dump()
         submission_dict["user"] = user
         submission_dict["is_new"] = view is None and submission.user_id != current_user_id
         submission_dict["overlays"] = [overlay.model_dump() for overlay in overlays]
-
-        print(submission_dict["overlays"])
 
         # If this is a new submission (not viewed before and not own submission)
         if submission_dict["is_new"]:
