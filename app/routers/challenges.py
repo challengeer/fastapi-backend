@@ -507,7 +507,7 @@ async def submit_challenge_photo(
     challenge = session.get(Challenge, challenge_id)
     if not challenge:
         raise HTTPException(status_code=404, detail="Challenge not found")
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Challenge has ended")
 
     # Check if user has accepted invitation
