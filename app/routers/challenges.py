@@ -733,19 +733,9 @@ def get_challenge_details(
     if not challenge:
         raise HTTPException(status_code=404, detail="Challenge not found")
 
-    # Get all participants and their submission counts in a single query
+    # Get all participants
     participants_query = (
-        select(
-            User,
-            ChallengeInvitation,
-            select(Submission.submission_id)
-            .where(
-                (Submission.user_id == User.user_id) &
-                (Submission.challenge_id == challenge_id)
-            )
-            .count()
-            .label("submission_count")
-        )
+        select(User, ChallengeInvitation)
         .join(
             ChallengeInvitation,
             (ChallengeInvitation.receiver_id == User.user_id) &
@@ -762,10 +752,19 @@ def get_challenge_details(
     invitation_id = None
     current_user_submission_count = 0
 
-    for user, invitation, submission_count in participant_results:
+    for user, invitation in participant_results:
+        # Get submission count for this user
+        submission_count = session.exec(
+            select(Submission)
+            .where(
+                (Submission.user_id == user.user_id) &
+                (Submission.challenge_id == challenge_id)
+            )
+        ).count()
+
         user_dict = {
             **user.model_dump(),
-            "submission_count": submission_count or 0
+            "submission_count": submission_count
         }
         
         if user.user_id == challenge.creator_id:
@@ -774,7 +773,7 @@ def get_challenge_details(
             participants.append(user_dict)
         
         if user.user_id == current_user_id:
-            current_user_submission_count = submission_count or 0
+            current_user_submission_count = submission_count
             # Determine user status and invitation_id
             if submission_count > 0:
                 user_status = UserChallengeStatus.SUBMITTED
