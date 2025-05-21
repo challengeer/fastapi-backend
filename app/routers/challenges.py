@@ -695,7 +695,6 @@ class ChallengeResponse(BaseModel):
     start_date: datetime
     end_date: Optional[datetime]
     created_at: datetime
-    activity_duration_minutes: Optional[int]
     creator: Participant
     participants: List[Participant]
     has_new_submissions: bool
