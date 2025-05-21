@@ -738,20 +738,20 @@ def get_challenge_details(
         select(
             User,
             ChallengeInvitation,
-            Submission.submission_id.count().label("submission_count")
+            select(Submission.submission_id)
+            .where(
+                (Submission.user_id == User.user_id) &
+                (Submission.challenge_id == challenge_id)
+            )
+            .count()
+            .label("submission_count")
         )
         .join(
             ChallengeInvitation,
             (ChallengeInvitation.receiver_id == User.user_id) &
             (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
         )
-        .outerjoin(
-            Submission,
-            (Submission.user_id == User.user_id) &
-            (Submission.challenge_id == challenge_id)
-        )
         .where(ChallengeInvitation.challenge_id == challenge_id)
-        .group_by(User.user_id, ChallengeInvitation.invitation_id)
     )
     participant_results = session.exec(participants_query).all()
 
