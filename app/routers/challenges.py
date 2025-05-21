@@ -323,10 +323,15 @@ def get_my_challenges(
             )
         ).first() is not None
 
+        # Ensure end_date is timezone-aware
+        end_date = challenge.end_date
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=timezone.utc)
+
         # Determine completion status based on challenge state and user's submission
         if has_submitted:
             completion_status = ChallengeCompletionStatus.COMPLETED
-        elif challenge.end_date.replace(tzinfo=timezone.utc) < current_time:
+        elif end_date < current_time:
             completion_status = ChallengeCompletionStatus.FAILED
         elif is_owner:
             completion_status = ChallengeCompletionStatus.IN_PROGRESS
