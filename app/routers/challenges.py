@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlmodel import Session, select, delete
 from pydantic import BaseModel
 from typing import Optional, List
@@ -500,7 +500,7 @@ def remove_participant(
 async def submit_challenge_photo(
     challenge_id: int,
     file: UploadFile = File(...),
-    overlays: Optional[str] = None,
+    overlays: Optional[str] = Form(None),
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
