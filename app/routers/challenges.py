@@ -340,8 +340,6 @@ def get_my_challenges(
             completion_status = ChallengeCompletionStatus.COMPLETED
         elif end_date < current_time:
             completion_status = ChallengeCompletionStatus.FAILED
-        elif is_owner:
-            completion_status = ChallengeCompletionStatus.IN_PROGRESS
         else:
             completion_status = ChallengeCompletionStatus.NOT_STARTED
 
