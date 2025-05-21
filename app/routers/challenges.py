@@ -525,13 +525,13 @@ async def submit_challenge_photo(
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
     # Check number of existing submissions
-    submission_count = session.exec(
-        select(Submission)
+    submission_count = len(session.exec(
+        select(Submission.submission_id)
         .where(
             (Submission.challenge_id == challenge_id) &
             (Submission.user_id == current_user_id)
         )
-    ).count()
+    ).all())
     
     if submission_count >= MAX_SUBMISSIONS_PER_USER:
         raise HTTPException(
@@ -755,7 +755,7 @@ def get_challenge_details(
     for user, invitation in participant_results:
         # Get submission count for this user
         submission_count = len(session.exec(
-            select(Submission)
+            select(Submission.submission_id)
             .where(
                 (Submission.user_id == user.user_id) &
                 (Submission.challenge_id == challenge_id)
