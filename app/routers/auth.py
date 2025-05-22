@@ -279,3 +279,53 @@ def check_username_exists(username: str, session: Session = Depends(get_session)
         username=validated_username,
         exists=existing_user is not None
     )
+
+
+class TestLoginRequest(BaseModel):
+    username: str
+    fcm_token: str | None = None
+
+@router.post("/test-login", response_model=GoogleAuthResponse)
+async def test_login(request: TestLoginRequest, db: Session = Depends(get_session)):
+    try:
+        # Find user by username
+        user = db.exec(
+            select(User).where(User.username == request.username)
+        ).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        # Handle device registration if FCM token provided
+        if request.fcm_token:
+            existing_device = db.exec(
+                select(Device).where(
+                    (Device.user_id == user.user_id) &
+                    (Device.fcm_token == request.fcm_token)
+                )
+            ).first()
+
+            if not existing_device:
+                device = Device(
+                    user_id=user.user_id,
+                    fcm_token=request.fcm_token
+                )
+                db.add(device)
+                db.commit()
+
+        tokens = create_tokens(user.user_id)
+        return {
+            "user": UserPublic.model_validate(user),
+            **tokens
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
