@@ -731,7 +731,6 @@ class ChallengeResponse(BaseModel):
     has_new_submissions: bool
     user_status: UserChallengeStatus
     invitation_id: Optional[int] = None
-    submission_count: Optional[int] = None  # Add current user's submission count
 
 @router.get("/{challenge_id}", response_model=ChallengeResponse)
 def get_challenge_details(
@@ -763,18 +762,17 @@ def get_challenge_details(
     current_user_submission_count = 0
 
     for user, invitation in participant_results:
-        # Get submission count for this user
-        submission_count = len(session.exec(
+        has_submitted = session.exec(
             select(Submission.submission_id)
             .where(
                 (Submission.user_id == user.user_id) &
                 (Submission.challenge_id == challenge_id)
             )
-        ).all())
+        ).first() is not None
 
         user_dict = {
             **user.model_dump(),
-            "submission_count": submission_count
+            "has_submitted": has_submitted
         }
         
         if user.user_id == challenge.creator_id:
@@ -783,9 +781,8 @@ def get_challenge_details(
             participants.append(user_dict)
         
         if user.user_id == current_user_id:
-            current_user_submission_count = submission_count
             # Determine user status and invitation_id
-            if submission_count > 0:
+            if has_submitted:
                 user_status = UserChallengeStatus.SUBMITTED
             elif invitation.status == InvitationStatus.PENDING:
                 user_status = UserChallengeStatus.INVITED
