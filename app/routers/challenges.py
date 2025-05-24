@@ -415,8 +415,9 @@ def get_challenge_invites(
         .join(User, User.user_id == ChallengeInvitation.sender_id)
         .where(
             (ChallengeInvitation.receiver_id == current_user_id) &
-            (ChallengeInvitation.status == InvitationStatus.PENDING)
-        )
+            (ChallengeInvitation.status == InvitationStatus.PENDING) &
+            (Challenge.end_date > datetime.now(timezone.utc))
+        ) # Only get active challenges
         .order_by(ChallengeInvitation.sent_at.desc())
     )
     invitations = session.exec(invitations_query).all()
