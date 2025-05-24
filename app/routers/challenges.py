@@ -74,10 +74,6 @@ class ChallengePublic(BaseModel):
     end_date: Optional[datetime]
     duration: Optional[int]
 
-class SimpleInviteResponse(ChallengePublic):
-    invitation_id: int
-    sender: UserPublic
-
 
 class ChallengeCreate(BaseModel):
     title: str
@@ -303,7 +299,59 @@ def get_my_challenges(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    # Get all challenges where user is creator or participant
+    # Get all active challenges where user is participant
+    challenges_query = (
+        select(Challenge, Submission)
+        .join(
+            ChallengeInvitation,
+            (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
+            (ChallengeInvitation.receiver_id == current_user_id) &
+            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+        ) # Get user's accepted invitations
+        .where(
+            (Challenge.end_date > datetime.now(timezone.utc))
+        ) # Only get active challenges
+        .order_by(Challenge.end_date.desc())
+    )
+    challenges = session.exec(challenges_query).all()
+
+    # Process challenges
+    challenges_response = []
+    for challenge in challenges:
+        has_new_submissions = has_new_submissions(session, challenge.challenge_id, current_user_id)
+        is_owner = challenge.creator_id == current_user_id
+        
+        # Check if user has submitted
+        has_submitted = session.exec(
+            select(Submission.submission_id)
+            .where(
+                (Submission.challenge_id == challenge.challenge_id) &
+                (Submission.user_id == current_user_id)
+            )
+        ).first() is not None
+
+        # Determine completion status based on challenge state and user's submission
+        if has_submitted:
+            completion_status = ChallengeCompletionStatus.COMPLETED
+        else:
+            completion_status = ChallengeCompletionStatus.NOT_STARTED
+
+        challenges_response.append({
+            **challenge.model_dump(),
+            "has_new_submissions": has_new_submissions,
+            "completion_status": completion_status,
+            "is_owner": is_owner
+        })
+
+    return challenges_response
+
+
+@router.get("/history", response_model=List[SimpleChallengeResponse])
+def get_user_challenge_history(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Get all challenges where user has an accepted invitation (including ones they created)
     challenges_query = (
         select(Challenge)
         .join(
@@ -311,49 +359,49 @@ def get_my_challenges(
             (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
             (ChallengeInvitation.receiver_id == current_user_id) &
             (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-        )
-        .order_by(Challenge.end_date)
+        ) # Get user's accepted invitations
+        .where(
+            (Challenge.end_date < datetime.now(timezone.utc))
+        )  # Only get challenges that have ended
+        .order_by(Challenge.created_at.desc())
     )
     challenges = session.exec(challenges_query).all()
-
+    
     # Process challenges
     challenges_response = []
-    current_time = datetime.now(timezone.utc)
-    
     for challenge in challenges:
-        has_new = has_new_submissions(session, challenge.challenge_id, current_user_id)
+        has_new_submissions = has_new_submissions(session, challenge.challenge_id, current_user_id)
         is_owner = challenge.creator_id == current_user_id
-        
+
         # Check if user has submitted
         has_submitted = session.exec(
-            select(Submission)
+            select(Submission.submission_id)
             .where(
                 (Submission.challenge_id == challenge.challenge_id) &
                 (Submission.user_id == current_user_id)
             )
         ).first() is not None
 
-        # Ensure end_date is timezone-aware
-        end_date = challenge.end_date
-        if end_date.tzinfo is None:
-            end_date = end_date.replace(tzinfo=timezone.utc)
-
         # Determine completion status based on challenge state and user's submission
         if has_submitted:
             completion_status = ChallengeCompletionStatus.COMPLETED
-        elif end_date < current_time:
-            completion_status = ChallengeCompletionStatus.FAILED
         else:
-            completion_status = ChallengeCompletionStatus.NOT_STARTED
+            completion_status = ChallengeCompletionStatus.FAILED
 
         challenges_response.append({
             **challenge.model_dump(),
-            "has_new_submissions": has_new,
+            "has_new_submissions": has_new_submissions,
             "completion_status": completion_status,
             "is_owner": is_owner
         })
-
+    
     return challenges_response
+
+
+class SimpleInviteResponse(ChallengePublic):
+    has_new_submissions: bool
+    invitation_id: int
+    sender: UserPublic
 
 @router.get("/invites", response_model=List[SimpleInviteResponse])
 def get_challenge_invites(
@@ -376,57 +424,16 @@ def get_challenge_invites(
     # Process invitations
     invitations_response = []
     for invitation, challenge, sender in invitations:
+        has_new_submissions = has_new_submissions(session, challenge.challenge_id, current_user_id)
+
         invitations_response.append({
             **challenge.model_dump(),
+            "has_new_submissions": has_new_submissions,
             "invitation_id": invitation.invitation_id,
             "sender": sender
         })
 
     return invitations_response
-
-
-class UserChallengeHistoryResponse(ChallengePublic):
-    has_submitted: bool
-    has_new_submissions: bool
-
-@router.get("/history", response_model=List[UserChallengeHistoryResponse])
-def get_user_challenge_history(
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    # Get all challenges where user has an accepted invitation (including ones they created)
-    challenges_query = (
-        select(Challenge, User, Submission)
-        .join(User, User.user_id == Challenge.creator_id)
-        .join(
-            ChallengeInvitation,
-            (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
-            (ChallengeInvitation.receiver_id == current_user_id) &
-            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-        )
-        .outerjoin(
-            Submission,
-            (Submission.challenge_id == Challenge.challenge_id) &
-            (Submission.user_id == current_user_id)
-        )
-        .where(Challenge.end_date < datetime.now(timezone.utc))  # Only get challenges that have ended
-        .order_by(Challenge.created_at.desc())
-    )
-    challenges = session.exec(challenges_query).all()
-    
-    result = []
-    for challenge, creator, submission in challenges:
-        # Check for new submissions
-        new_submissions_exist = has_new_submissions(session, challenge.challenge_id, current_user_id)
-        
-        result.append({
-            **challenge.model_dump(),
-            "creator": creator,
-            "has_submitted": submission is not None,
-            "has_new_submissions": new_submissions_exist
-        })
-    
-    return result
 
 
 class RemoveParticipantRequest(BaseModel):
@@ -739,7 +746,7 @@ def get_challenge_details(
         .join(
             ChallengeInvitation,
             (ChallengeInvitation.receiver_id == User.user_id) &
-            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+            ((ChallengeInvitation.status == InvitationStatus.ACCEPTED) | (ChallengeInvitation.status == InvitationStatus.PENDING))
         )
         .where(ChallengeInvitation.challenge_id == challenge_id)
     )
@@ -769,7 +776,7 @@ def get_challenge_details(
         
         if user.user_id == challenge.creator_id:
             creator = user_dict
-        else:
+        elif invitation.status == InvitationStatus.ACCEPTED:
             participants.append(user_dict)
         
         if user.user_id == current_user_id:
@@ -777,15 +784,12 @@ def get_challenge_details(
             # Determine user status and invitation_id
             if submission_count > 0:
                 user_status = UserChallengeStatus.SUBMITTED
-            elif challenge.creator_id == current_user_id:
+            elif invitation.status == InvitationStatus.PENDING:
+                user_status = UserChallengeStatus.INVITED
+                invitation_id = invitation.invitation_id
+            else:
                 user_status = UserChallengeStatus.PARTICIPANT
-            elif invitation.invitation_id:
-                if invitation.status == InvitationStatus.ACCEPTED:
-                    user_status = UserChallengeStatus.PARTICIPANT
-                else:  # PENDING
-                    user_status = UserChallengeStatus.INVITED
-                    invitation_id = invitation.invitation_id
-
+                invitation_id = invitation.invitation_id
             is_participant = True
 
     if not is_participant:
