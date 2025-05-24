@@ -762,23 +762,24 @@ def get_challenge_details(
     current_user_submission_count = 0
 
     for user, invitation in participant_results:
-        has_submitted = session.exec(
-            select(Submission.submission_id)
-            .where(
-                (Submission.user_id == user.user_id) &
-                (Submission.challenge_id == challenge_id)
-            )
-        ).first() is not None
+        if invitation.status == InvitationStatus.ACCEPTED:
+            has_submitted = session.exec(
+                select(Submission.submission_id)
+                .where(
+                    (Submission.user_id == user.user_id) &
+                    (Submission.challenge_id == challenge_id)
+                )
+            ).first() is not None
 
-        user_dict = {
-            **user.model_dump(),
-            "has_submitted": has_submitted
-        }
+            user_dict = {
+                **user.model_dump(),
+                "has_submitted": has_submitted
+            }
         
-        if user.user_id == challenge.creator_id:
-            creator = user_dict
-        elif invitation.status == InvitationStatus.ACCEPTED:
-            participants.append(user_dict)
+            if user.user_id == challenge.creator_id:
+                creator = user_dict
+            else:
+                participants.append(user_dict)
         
         if user.user_id == current_user_id:
             # Determine user status and invitation_id
