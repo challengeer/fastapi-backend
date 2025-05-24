@@ -318,7 +318,7 @@ def get_my_challenges(
     # Process challenges
     challenges_response = []
     for challenge in challenges:
-        has_new_submissions = has_new_submissions(session, challenge.challenge_id, current_user_id)
+        has_new = has_new_submissions(session, challenge.challenge_id, current_user_id)
         is_owner = challenge.creator_id == current_user_id
         
         # Check if user has submitted
@@ -338,7 +338,7 @@ def get_my_challenges(
 
         challenges_response.append({
             **challenge.model_dump(),
-            "has_new_submissions": has_new_submissions,
+            "has_new_submissions": has_new,
             "completion_status": completion_status,
             "is_owner": is_owner
         })
@@ -370,7 +370,7 @@ def get_user_challenge_history(
     # Process challenges
     challenges_response = []
     for challenge in challenges:
-        has_new_submissions = has_new_submissions(session, challenge.challenge_id, current_user_id)
+        has_new = has_new_submissions(session, challenge.challenge_id, current_user_id)
         is_owner = challenge.creator_id == current_user_id
 
         # Check if user has submitted
@@ -390,7 +390,7 @@ def get_user_challenge_history(
 
         challenges_response.append({
             **challenge.model_dump(),
-            "has_new_submissions": has_new_submissions,
+            "has_new_submissions": has_new,
             "completion_status": completion_status,
             "is_owner": is_owner
         })
@@ -424,11 +424,11 @@ def get_challenge_invites(
     # Process invitations
     invitations_response = []
     for invitation, challenge, sender in invitations:
-        has_new_submissions = has_new_submissions(session, challenge.challenge_id, current_user_id)
+        has_new = has_new_submissions(session, challenge.challenge_id, current_user_id)
 
         invitations_response.append({
             **challenge.model_dump(),
-            "has_new_submissions": has_new_submissions,
+            "has_new_submissions": has_new,
             "invitation_id": invitation.invitation_id,
             "sender": sender
         })
