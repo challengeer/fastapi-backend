@@ -714,7 +714,7 @@ async def get_challenge_submissions(
 
 
 class Participant(UserPublic):
-    submission_count: int
+    has_submitted: bool
 
 class ChallengeResponse(BaseModel):
     challenge_id: int
