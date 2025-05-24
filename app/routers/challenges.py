@@ -311,7 +311,7 @@ def get_my_challenges(
         .where(
             (Challenge.end_date > datetime.now(timezone.utc))
         ) # Only get active challenges
-        .order_by(Challenge.end_date.desc())
+        .order_by(Challenge.end_date)
     )
     challenges = session.exec(challenges_query).all()
 
