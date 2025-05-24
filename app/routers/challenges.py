@@ -71,7 +71,9 @@ class ChallengePublic(BaseModel):
     title: str
     emoji: str
     category: str
-    end_date: Optional[datetime]
+    created_at: datetime
+    start_date: datetime
+    end_date: datetime
     duration: Optional[int]
 
 
