@@ -118,8 +118,8 @@ def create_challenge(
 
     new_challenge = Challenge(
         creator_id=current_user_id,
-        title=challenge.title,
-        description=challenge.description,
+        title=challenge.title.strip(),
+        description=challenge.description.strip() if challenge.description else None,
         emoji=challenge.emoji,
         category=challenge.category,
         start_date=start_date,
@@ -833,8 +833,8 @@ def update_challenge_title(
     if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only update active challenges")
 
-    # Update title
-    challenge.title = update.title
+    # Update title with stripped whitespace
+    challenge.title = update.title.strip()
     session.add(challenge)
     session.commit()
     session.refresh(challenge)
@@ -864,8 +864,8 @@ def update_challenge_description(
     if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only update active challenges")
 
-    # Update description
-    challenge.description = update.description
+    # Update description with stripped whitespace
+    challenge.description = update.description.strip() if update.description else None
     session.add(challenge)
     session.commit()
     session.refresh(challenge)
