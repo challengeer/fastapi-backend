@@ -301,7 +301,7 @@ def get_my_challenges(
 ):
     # Get all active challenges where user is participant
     challenges_query = (
-        select(Challenge, Submission)
+        select(Challenge)
         .join(
             ChallengeInvitation,
             (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
