@@ -73,6 +73,93 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
 
         # If user doesn't exist, create a new user
         if not user:
+            phone_number = decoded_token.get('phone_number')
+
+            if not phone_number:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number not verified"
+                )
+
+            phone_number = phone_number.replace('+', '')
+            email = decoded_token.get('email')
+            name = decoded_token.get('name', '')
+            picture = decoded_token.get('picture')
+
+            # Split name into first and last name
+            name_parts = name.split(' ', 1)
+            first_name = name_parts[0] if name_parts else 'user'
+            last_name = name_parts[1] if len(name_parts) > 1 else ''
+
+            username = generate_username(first_name, last_name)
+            
+            # Ensure username is unique
+            while db.exec(select(User).where(User.username == username)).first():
+                username = generate_username(first_name, last_name)
+            
+            # Create new user
+            user = User(
+                username=username,
+                display_name=name or username,
+                profile_picture=picture,
+                email=email,
+                phone_number=phone_number,
+                firebase_uid=uid
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        # Handle device registration
+        if request.fcm_token:
+            existing_device = db.exec(
+                select(Device).where(
+                    (Device.user_id == user.user_id) &
+                    (Device.fcm_token == request.fcm_token)
+                )
+            ).first()
+
+            if not existing_device:
+                device = Device(
+                    user_id=user.user_id,
+                    fcm_token=request.fcm_token
+                )
+                db.add(device)
+                db.commit()
+
+        tokens = create_tokens(user.user_id)
+        return {
+            "user": UserPublic.model_validate(user),
+            **tokens
+        }
+
+    except auth.InvalidIdTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Firebase token"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+@router.post("/google-temp", response_model=GoogleAuthResponse)
+async def google_auth_temp(request: GoogleAuthRequest, db: Session = Depends(get_session)):
+    try:
+        # Verify the Firebase token
+        decoded_token = auth.verify_id_token(request.id_token)
+        uid = decoded_token['uid']
+
+        # Check if user exists by Firebase UID
+        user = db.exec(
+            select(User).where(User.firebase_uid == uid)
+        ).first()
+
+        # If user doesn't exist, create a new user
+        if not user:
             # phone_number = decoded_token.get('phone_number')
             phone_number = request.phone_number
 
