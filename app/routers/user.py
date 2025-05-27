@@ -26,6 +26,9 @@ router = APIRouter(
 # Initialize notification service
 notification_service = NotificationService()
 
+# Constants for streak calculation
+MAX_STREAK_GAP_DAYS = 3  # Maximum allowed gap between active days to maintain streak
+
 class FriendshipStatus(str, Enum):
     FRIENDS = "friends"
     REQUEST_SENT = "request_sent"
@@ -36,27 +39,26 @@ def calculate_streak(completion_dates: List[datetime]) -> int:
     if not completion_dates:
         return 0
         
-    # Convert to dates only (ignore time) and sort in descending order
-    dates = sorted([d.date() for d in completion_dates], reverse=True)
+    # Convert to dates only (ignore time) and get unique dates
+    unique_dates = sorted(set(d.date() for d in completion_dates), reverse=True)
     
     # Check if there's activity today or in the last 3 days
     today = datetime.now().date()
-    if (today - dates[0]) > timedelta(days=3):
+    if (today - unique_dates[0]) > timedelta(days=MAX_STREAK_GAP_DAYS):
         return 0  # Streak is broken if no activity in last 3 days
         
     streak = 1
-    allowed_gap = timedelta(days=3)  # Maximum allowed gap between challenges
+    allowed_gap = timedelta(days=MAX_STREAK_GAP_DAYS)  # Maximum allowed gap between active days
     
     # Start from the second most recent date
-    for i in range(1, len(dates)):
-        gap = dates[i-1] - dates[i]
+    for i in range(1, len(unique_dates)):
+        gap = unique_dates[i-1] - unique_dates[i]
         if gap <= allowed_gap:
             streak += 1
         else:
             break
             
     return streak
-
 
 
 class UserMe(UserPublic):
