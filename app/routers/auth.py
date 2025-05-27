@@ -74,7 +74,9 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
         # If user doesn't exist, create a new user
         if not user:
             # phone_number = decoded_token.get('phone_number')
-            phone_number = request.phone_number
+            phone_number = request.phone_number.replace('+', '')
+
+            print(f"phone_number: {phone_number}")
 
             if not phone_number or len(phone_number) > 15 or not phone_number.isdigit():
                 raise HTTPException(
@@ -82,7 +84,16 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
                     detail="Phone number not verified"
                 )
 
-            phone_number = phone_number.replace('+', '')
+            existing_user = db.exec(
+                select(User).where(User.phone_number == phone_number)
+            ).first()
+
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already registered"
+                )
+
             email = decoded_token.get('email')
             name = decoded_token.get('name', '')
             picture = decoded_token.get('picture')
