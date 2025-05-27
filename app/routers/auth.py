@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 from pydantic import BaseModel
 from datetime import timedelta
+from typing import Optional
 import firebase_admin
 from firebase_admin import auth, credentials
 import secrets
@@ -51,6 +52,7 @@ def generate_username(first_name: str, last_name: str) -> str:
 class GoogleAuthRequest(BaseModel):
     id_token: str
     fcm_token: str
+    phone_number: Optional[str] = None
 
 class GoogleAuthResponse(BaseModel):
     user: UserPublic
@@ -71,9 +73,10 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
 
         # If user doesn't exist, create a new user
         if not user:
-            phone_number = decoded_token.get('phone_number')
+            # phone_number = decoded_token.get('phone_number')
+            phone_number = request.phone_number
 
-            if not phone_number:
+            if not phone_number or len(phone_number) > 15 or not phone_number.isdigit():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Phone number not verified"
