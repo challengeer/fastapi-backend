@@ -76,9 +76,7 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             # phone_number = decoded_token.get('phone_number')
             phone_number = request.phone_number
 
-            print(f"phone_number: {phone_number}")
-
-            if not phone_number or len(phone_number) > 15 or not phone_number.isdigit():
+            if not phone_number or len(phone_number) > 15 or not phone_number.replace('+', '').isdigit():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Phone number not verified"
@@ -93,8 +91,6 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Phone number already registered"
                 )
-            
-            print("Successfully verified phone number")
 
             phone_number = phone_number.replace('+', '')
             email = decoded_token.get('email')
