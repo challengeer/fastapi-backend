@@ -87,9 +87,9 @@ async def google_auth(request: GoogleAuthRequest, db: Session = Depends(get_sess
             picture = decoded_token.get('picture')
 
             # Split name into first and last name
-            name_parts = name.split(' ', 1)
+            name_parts = name.split(' ')
             first_name = name_parts[0] if name_parts else 'user'
-            last_name = name_parts[1] if len(name_parts) > 1 else ''
+            last_name = name_parts[-1] if len(name_parts) > 1 else ''
 
             username = generate_username(first_name, last_name)
             
@@ -185,9 +185,9 @@ async def google_auth_temp(request: GoogleAuthRequest, db: Session = Depends(get
             picture = decoded_token.get('picture')
 
             # Split name into first and last name
-            name_parts = name.split(' ', 1)
+            name_parts = name.split(' ')
             first_name = name_parts[0] if name_parts else 'user'
-            last_name = name_parts[1] if len(name_parts) > 1 else ''
+            last_name = name_parts[-1] if len(name_parts) > 1 else ''
 
             username = generate_username(first_name, last_name)
             
