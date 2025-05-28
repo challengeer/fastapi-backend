@@ -10,9 +10,4 @@ class SubmissionBase(SQLModel):
     submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Submission(SubmissionBase, table=True):
-    submission_id: Optional[int] = Field(default=None, primary_key=True)
-
-    class Config:
-        sa_column_kwargs = {
-            "challenge_id,user_id": {"unique": True}  # One submission per user per challenge
-        } 
+    submission_id: Optional[int] = Field(default=None, primary_key=True) 

@@ -12,6 +12,10 @@ from ..models.friend_request import FriendRequest, RequestStatus
 from ..services.auth import get_current_user_id, validate_username
 from ..services.s3 import upload_image, extract_key_from_url, delete_file
 from ..models.submission import Submission
+from ..models.submission_overlay import SubmissionOverlay
+from ..models.submission_view import SubmissionView
+from ..models.contact import Contact
+from ..models.device import Device
 from ..services.notification import NotificationService
 
 router = APIRouter(
@@ -21,6 +25,9 @@ router = APIRouter(
 
 # Initialize notification service
 notification_service = NotificationService()
+
+# Constants for streak calculation
+MAX_STREAK_GAP_DAYS = 3  # Maximum allowed gap between active days to maintain streak
 
 class FriendshipStatus(str, Enum):
     FRIENDS = "friends"
@@ -32,27 +39,26 @@ def calculate_streak(completion_dates: List[datetime]) -> int:
     if not completion_dates:
         return 0
         
-    # Convert to dates only (ignore time) and sort in descending order
-    dates = sorted([d.date() for d in completion_dates], reverse=True)
+    # Convert to dates only (ignore time) and get unique dates
+    unique_dates = sorted(set(d.date() for d in completion_dates), reverse=True)
     
     # Check if there's activity today or in the last 3 days
     today = datetime.now().date()
-    if (today - dates[0]) > timedelta(days=3):
+    if (today - unique_dates[0]) > timedelta(days=MAX_STREAK_GAP_DAYS):
         return 0  # Streak is broken if no activity in last 3 days
         
     streak = 1
-    allowed_gap = timedelta(days=3)  # Maximum allowed gap between challenges
+    allowed_gap = timedelta(days=MAX_STREAK_GAP_DAYS)  # Maximum allowed gap between active days
     
     # Start from the second most recent date
-    for i in range(1, len(dates)):
-        gap = dates[i-1] - dates[i]
+    for i in range(1, len(unique_dates)):
+        gap = unique_dates[i-1] - unique_dates[i]
         if gap <= allowed_gap:
             streak += 1
         else:
             break
             
     return streak
-
 
 
 class UserMe(UserPublic):
@@ -263,3 +269,92 @@ async def update_profile_picture(
     session.commit()
     session.refresh(user)
     return user
+
+@router.delete("/me", status_code=204)
+async def delete_user(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Get user and verify existence
+    user = session.get(User, current_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Delete profile picture from S3 if exists
+    if user.profile_picture:
+        old_key = extract_key_from_url(user.profile_picture)
+        if old_key:
+            delete_file(old_key)
+
+    # Get all submission photo URLs before deleting the records
+    submissions = session.exec(
+        select(Submission)
+        .where(Submission.user_id == current_user_id)
+    ).all()
+    
+    photo_urls = [submission.photo_url for submission in submissions]
+
+    # Delete in correct order to handle foreign key constraints
+    
+    # 1. Delete submission views first
+    session.exec(
+        select(SubmissionView).where(
+            SubmissionView.submission_id.in_(
+                select(Submission.submission_id)
+                .where(Submission.user_id == current_user_id)
+            )
+        )
+    ).delete()
+
+    # 2. Delete submission overlays
+    session.exec(
+        select(SubmissionOverlay).where(
+            SubmissionOverlay.submission_id.in_(
+                select(Submission.submission_id)
+                .where(Submission.user_id == current_user_id)
+            )
+        )
+    ).delete()
+
+    # 3. Delete submissions
+    session.exec(
+        select(Submission).where(Submission.user_id == current_user_id)
+    ).delete()
+
+    # 4. Delete contacts
+    session.exec(
+        select(Contact).where(Contact.user_id == current_user_id)
+    ).delete()
+
+    # 5. Delete devices
+    session.exec(
+        select(Device).where(Device.user_id == current_user_id)
+    ).delete()
+
+    # 6. Delete all friendships
+    session.exec(
+        select(Friendship).where(
+            (Friendship.user1_id == current_user_id) | 
+            (Friendship.user2_id == current_user_id)
+        )
+    ).delete()
+
+    # 7. Delete all friend requests (both sent and received)
+    session.exec(
+        select(FriendRequest).where(
+            (FriendRequest.sender_id == current_user_id) | 
+            (FriendRequest.receiver_id == current_user_id)
+        )
+    ).delete()
+
+    # 8. Delete the user
+    session.delete(user)
+    session.commit()
+
+    # After successful database deletion, delete the S3 photos
+    for photo_url in photo_urls:
+        try:
+            delete_file(extract_key_from_url(photo_url))
+        except Exception as e:
+            print(f"Failed to delete S3 photo {photo_url}: {e}")
+            # Continue with other deletions even if one fails

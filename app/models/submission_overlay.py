@@ -16,3 +16,12 @@ class SubmissionOverlayBase(SQLModel):
 
 class SubmissionOverlay(SubmissionOverlayBase, table=True):
     overlay_id: Optional[int] = Field(default=None, primary_key=True) 
+
+class SubmissionOverlayCreate(SubmissionOverlayBase):
+    overlay_type: OverlayType
+    content: str
+    x: float
+    y: float
+
+class SubmissionOverlayPublic(SubmissionOverlayBase):
+    overlay_id: int

@@ -1,20 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlmodel import Session, select, delete
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+import json
 
 from ..services.database import get_session
 from ..models.user import User, UserPublic
 from ..models.challenge import Challenge
 from ..models.challenge_invitation import ChallengeInvitation, InvitationStatus
 from ..models.submission import Submission
-from ..models.submission_overlay import SubmissionOverlay, SubmissionOverlayBase
+from ..models.submission_overlay import SubmissionOverlay, SubmissionOverlayPublic
 from ..models.submission_view import SubmissionView
 from ..services.auth import get_current_user_id
 from ..services.s3 import upload_image, delete_file, extract_key_from_url
 from ..services.notification import NotificationService
+
+# Constants
+MAX_SUBMISSIONS_PER_USER = 5
 
 router = APIRouter(
     prefix="/challenges",
@@ -54,7 +58,7 @@ class SubmissionResponse(BaseModel):
     submitted_at: datetime
     user: UserPublic
     is_new: bool = False
-    overlays: List[SubmissionOverlay] = []
+    overlays: List[SubmissionOverlayPublic] = []
 
 class ChallengeInviteResponse(BaseModel):
     invitation_id: int
@@ -67,12 +71,10 @@ class ChallengePublic(BaseModel):
     title: str
     emoji: str
     category: str
-    end_date: Optional[datetime]
+    created_at: datetime
+    start_date: datetime
+    end_date: datetime
     duration: Optional[int]
-
-class SimpleInviteResponse(ChallengePublic):
-    invitation_id: int
-    sender: UserPublic
 
 
 class ChallengeCreate(BaseModel):
@@ -116,8 +118,8 @@ def create_challenge(
 
     new_challenge = Challenge(
         creator_id=current_user_id,
-        title=challenge.title,
-        description=challenge.description,
+        title=challenge.title.strip(),
+        description=challenge.description.strip() if challenge.description else None,
         emoji=challenge.emoji,
         category=challenge.category,
         start_date=start_date,
@@ -147,6 +149,12 @@ class ChallengeInviteCreate(BaseModel):
     challenge_id: int
     receiver_ids: List[int]
 
+def is_challenge_ended(challenge_end_date: datetime) -> bool:
+    """Helper function to check if a challenge has ended, handling timezone-aware comparisons."""
+    if challenge_end_date.tzinfo is None:
+        challenge_end_date = challenge_end_date.replace(tzinfo=timezone.utc)
+    return challenge_end_date < datetime.now(timezone.utc)
+
 @router.post("/invite")
 async def invite_to_challenge(
     invite: ChallengeInviteCreate,
@@ -161,7 +169,7 @@ async def invite_to_challenge(
         raise HTTPException(status_code=404, detail="Challenge not found")
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only challenge creator can send invites")
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only invite to active challenges")
 
     # Get sender's name
@@ -229,7 +237,7 @@ async def accept_challenge(
 
     # Check if challenge is still active
     challenge = session.get(Challenge, invitation.challenge_id)
-    if not challenge or challenge.end_date < datetime.now(timezone.utc):
+    if not challenge or is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Challenge has ended")
     
     # Get accepter info for notification
@@ -293,7 +301,7 @@ def get_my_challenges(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    # Get all challenges where user is creator or participant
+    # Get all active challenges where user is participant
     challenges_query = (
         select(Challenge)
         .join(
@@ -301,22 +309,23 @@ def get_my_challenges(
             (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
             (ChallengeInvitation.receiver_id == current_user_id) &
             (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-        )
+        ) # Get user's accepted invitations
+        .where(
+            (Challenge.end_date > datetime.now(timezone.utc))
+        ) # Only get active challenges
         .order_by(Challenge.end_date)
     )
     challenges = session.exec(challenges_query).all()
 
     # Process challenges
     challenges_response = []
-    current_time = datetime.now(timezone.utc)
-    
     for challenge in challenges:
         has_new = has_new_submissions(session, challenge.challenge_id, current_user_id)
         is_owner = challenge.creator_id == current_user_id
         
         # Check if user has submitted
         has_submitted = session.exec(
-            select(Submission)
+            select(Submission.submission_id)
             .where(
                 (Submission.challenge_id == challenge.challenge_id) &
                 (Submission.user_id == current_user_id)
@@ -326,10 +335,6 @@ def get_my_challenges(
         # Determine completion status based on challenge state and user's submission
         if has_submitted:
             completion_status = ChallengeCompletionStatus.COMPLETED
-        elif challenge.end_date.replace(tzinfo=timezone.utc) < current_time:
-            completion_status = ChallengeCompletionStatus.FAILED
-        elif is_owner:
-            completion_status = ChallengeCompletionStatus.IN_PROGRESS
         else:
             completion_status = ChallengeCompletionStatus.NOT_STARTED
 
@@ -341,6 +346,64 @@ def get_my_challenges(
         })
 
     return challenges_response
+
+
+@router.get("/history", response_model=List[SimpleChallengeResponse])
+def get_user_challenge_history(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    # Get all challenges where user has an accepted invitation (including ones they created)
+    challenges_query = (
+        select(Challenge)
+        .join(
+            ChallengeInvitation,
+            (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
+            (ChallengeInvitation.receiver_id == current_user_id) &
+            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
+        ) # Get user's accepted invitations
+        .where(
+            (Challenge.end_date < datetime.now(timezone.utc))
+        )  # Only get challenges that have ended
+        .order_by(Challenge.created_at.desc())
+    )
+    challenges = session.exec(challenges_query).all()
+    
+    # Process challenges
+    challenges_response = []
+    for challenge in challenges:
+        has_new = has_new_submissions(session, challenge.challenge_id, current_user_id)
+        is_owner = challenge.creator_id == current_user_id
+
+        # Check if user has submitted
+        has_submitted = session.exec(
+            select(Submission.submission_id)
+            .where(
+                (Submission.challenge_id == challenge.challenge_id) &
+                (Submission.user_id == current_user_id)
+            )
+        ).first() is not None
+
+        # Determine completion status based on challenge state and user's submission
+        if has_submitted:
+            completion_status = ChallengeCompletionStatus.COMPLETED
+        else:
+            completion_status = ChallengeCompletionStatus.FAILED
+
+        challenges_response.append({
+            **challenge.model_dump(),
+            "has_new_submissions": has_new,
+            "completion_status": completion_status,
+            "is_owner": is_owner
+        })
+    
+    return challenges_response
+
+
+class SimpleInviteResponse(ChallengePublic):
+    has_new_submissions: bool
+    invitation_id: int
+    sender: UserPublic
 
 @router.get("/invites", response_model=List[SimpleInviteResponse])
 def get_challenge_invites(
@@ -354,8 +417,9 @@ def get_challenge_invites(
         .join(User, User.user_id == ChallengeInvitation.sender_id)
         .where(
             (ChallengeInvitation.receiver_id == current_user_id) &
-            (ChallengeInvitation.status == InvitationStatus.PENDING)
-        )
+            (ChallengeInvitation.status == InvitationStatus.PENDING) &
+            (Challenge.end_date > datetime.now(timezone.utc))
+        ) # Only get active challenges
         .order_by(ChallengeInvitation.sent_at.desc())
     )
     invitations = session.exec(invitations_query).all()
@@ -363,57 +427,16 @@ def get_challenge_invites(
     # Process invitations
     invitations_response = []
     for invitation, challenge, sender in invitations:
+        has_new = has_new_submissions(session, challenge.challenge_id, current_user_id)
+
         invitations_response.append({
             **challenge.model_dump(),
+            "has_new_submissions": has_new,
             "invitation_id": invitation.invitation_id,
             "sender": sender
         })
 
     return invitations_response
-
-
-class UserChallengeHistoryResponse(ChallengePublic):
-    has_submitted: bool
-    has_new_submissions: bool
-
-@router.get("/history", response_model=List[UserChallengeHistoryResponse])
-def get_user_challenge_history(
-    session: Session = Depends(get_session),
-    current_user_id: int = Depends(get_current_user_id)
-):
-    # Get all challenges where user has an accepted invitation (including ones they created)
-    challenges_query = (
-        select(Challenge, User, Submission)
-        .join(User, User.user_id == Challenge.creator_id)
-        .join(
-            ChallengeInvitation,
-            (ChallengeInvitation.challenge_id == Challenge.challenge_id) &
-            (ChallengeInvitation.receiver_id == current_user_id) &
-            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-        )
-        .outerjoin(
-            Submission,
-            (Submission.challenge_id == Challenge.challenge_id) &
-            (Submission.user_id == current_user_id)
-        )
-        .where(Challenge.end_date < datetime.now(timezone.utc))  # Only get challenges that have ended
-        .order_by(Challenge.created_at.desc())
-    )
-    challenges = session.exec(challenges_query).all()
-    
-    result = []
-    for challenge, creator, submission in challenges:
-        # Check for new submissions
-        new_submissions_exist = has_new_submissions(session, challenge.challenge_id, current_user_id)
-        
-        result.append({
-            **challenge.model_dump(),
-            "creator": creator,
-            "has_submitted": submission is not None,
-            "has_new_submissions": new_submissions_exist
-        })
-    
-    return result
 
 
 class RemoveParticipantRequest(BaseModel):
@@ -434,7 +457,7 @@ def remove_participant(
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only the challenge creator can remove participants")
     
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only modify active challenges")
 
     # Get the invitation
@@ -488,7 +511,7 @@ def remove_participant(
 async def submit_challenge_photo(
     challenge_id: int,
     file: UploadFile = File(...),
-    overlays: Optional[List[SubmissionOverlayBase]] = None,
+    overlays: Optional[str] = Form(None),
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id)
 ):
@@ -496,7 +519,7 @@ async def submit_challenge_photo(
     challenge = session.get(Challenge, challenge_id)
     if not challenge:
         raise HTTPException(status_code=404, detail="Challenge not found")
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Challenge has ended")
 
     # Check if user has accepted invitation
@@ -511,16 +534,20 @@ async def submit_challenge_photo(
     if not invitation:
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
-    # Check if user already submitted
-    existing_submission = session.exec(
-        select(Submission)
+    # Check number of existing submissions
+    submission_count = len(session.exec(
+        select(Submission.submission_id)
         .where(
             (Submission.challenge_id == challenge_id) &
             (Submission.user_id == current_user_id)
         )
-    ).first()
-    if existing_submission:
-        raise HTTPException(status_code=400, detail="You have already submitted to this challenge")
+    ).all())
+    
+    if submission_count >= MAX_SUBMISSIONS_PER_USER:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"You have reached the maximum limit of {MAX_SUBMISSIONS_PER_USER} submissions for this challenge"
+        )
 
     # Validate file type
     if not file.content_type.startswith('image/'):
@@ -532,10 +559,18 @@ async def submit_challenge_photo(
     photo_url = await upload_image(
         file_content,  # Pass the bytes content instead of the file object
         folder=f"challenge-submissions/{challenge_id}",
-        identifier=str(current_user_id),
+        identifier=f"{current_user_id}_{submission_count + 1}",  # Add submission number to identifier
         width=1080,
         height=1920
     )
+
+    # Parse overlays if provided
+    overlay_list = None
+    if overlays:
+        try:
+            overlay_list = json.loads(overlays)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid overlays JSON format")
 
     # Create submission
     submission = Submission(
@@ -547,11 +582,11 @@ async def submit_challenge_photo(
     session.flush()  # Get the submission_id
 
     # Add overlays if any
-    if overlays:
-        for overlay_data in overlays:
+    if overlay_list:
+        for overlay_data in overlay_list:
             overlay = SubmissionOverlay(
                 submission_id=submission.submission_id,
-                **overlay_data.model_dump()
+                **overlay_data
             )
             session.add(overlay)
 
@@ -615,7 +650,7 @@ async def get_challenge_submissions(
     if not is_participant:
         raise HTTPException(status_code=403, detail="You are not a participant in this challenge")
 
-    # Check if user has submitted
+    # Check if user has at least one submission
     has_submitted = session.exec(
         select(Submission)
         .where(
@@ -627,7 +662,7 @@ async def get_challenge_submissions(
     if not has_submitted:
         raise HTTPException(
             status_code=403, 
-            detail="You must submit your photo before viewing other submissions"
+            detail="You must submit at least one photo before viewing other submissions"
         )
 
     # Get all submissions with user information and view status
@@ -640,6 +675,7 @@ async def get_challenge_submissions(
             (SubmissionView.viewer_id == current_user_id)
         )
         .where(Submission.challenge_id == challenge_id)
+        .order_by(Submission.submitted_at.desc())  # Order by submission time, newest first
     )
     results = session.exec(statement).all()
 
@@ -657,7 +693,7 @@ async def get_challenge_submissions(
         submission_dict = submission.model_dump()
         submission_dict["user"] = user
         submission_dict["is_new"] = view is None and submission.user_id != current_user_id
-        submission_dict["overlays"] = overlays
+        submission_dict["overlays"] = [overlay.model_dump() for overlay in overlays]
 
         # If this is a new submission (not viewed before and not own submission)
         if submission_dict["is_new"]:
@@ -690,7 +726,6 @@ class ChallengeResponse(BaseModel):
     start_date: datetime
     end_date: Optional[datetime]
     created_at: datetime
-    activity_duration_minutes: Optional[int]
     creator: Participant
     participants: List[Participant]
     has_new_submissions: bool
@@ -707,22 +742,13 @@ def get_challenge_details(
     if not challenge:
         raise HTTPException(status_code=404, detail="Challenge not found")
 
-    # Get all participants and their submissions in a single query
+    # Get all participants
     participants_query = (
-        select(
-            User,
-            ChallengeInvitation,
-            Submission.submission_id.label("has_submitted")
-        )
+        select(User, ChallengeInvitation)
         .join(
             ChallengeInvitation,
             (ChallengeInvitation.receiver_id == User.user_id) &
-            (ChallengeInvitation.status == InvitationStatus.ACCEPTED)
-        )
-        .outerjoin(
-            Submission,
-            (Submission.user_id == User.user_id) &
-            (Submission.challenge_id == challenge_id)
+            ((ChallengeInvitation.status == InvitationStatus.ACCEPTED) | (ChallengeInvitation.status == InvitationStatus.PENDING))
         )
         .where(ChallengeInvitation.challenge_id == challenge_id)
     )
@@ -733,30 +759,38 @@ def get_challenge_details(
     participants = []
     user_status = None
     invitation_id = None
-    for user, invitation, submission_id in participant_results:
-        user_dict = {
-            **user.model_dump(),
-            "has_submitted": submission_id is not None
-        }
+    current_user_submission_count = 0
+
+    for user, invitation in participant_results:
+        if invitation.status == InvitationStatus.ACCEPTED:
+            has_submitted = session.exec(
+                select(Submission.submission_id)
+                .where(
+                    (Submission.user_id == user.user_id) &
+                    (Submission.challenge_id == challenge_id)
+                )
+            ).first() is not None
+
+            user_dict = {
+                **user.model_dump(),
+                "has_submitted": has_submitted
+            }
         
-        if user.user_id == challenge.creator_id:
-            creator = user_dict
-        else:
-            participants.append(user_dict)
+            if user.user_id == challenge.creator_id:
+                creator = user_dict
+            else:
+                participants.append(user_dict)
         
         if user.user_id == current_user_id:
             # Determine user status and invitation_id
-            if submission_id:
+            if has_submitted:
                 user_status = UserChallengeStatus.SUBMITTED
-            elif challenge.creator_id == current_user_id:
+            elif invitation.status == InvitationStatus.PENDING:
+                user_status = UserChallengeStatus.INVITED
+                invitation_id = invitation.invitation_id
+            else:
                 user_status = UserChallengeStatus.PARTICIPANT
-            elif invitation.invitation_id:
-                if invitation.status == InvitationStatus.ACCEPTED:
-                    user_status = UserChallengeStatus.PARTICIPANT
-                else:  # PENDING
-                    user_status = UserChallengeStatus.INVITED
-                    invitation_id = invitation.invitation_id
-
+                invitation_id = invitation.invitation_id
             is_participant = True
 
     if not is_participant:
@@ -771,7 +805,8 @@ def get_challenge_details(
         "participants": participants,
         "has_new_submissions": new_submissions_exist,
         "user_status": user_status,
-        "invitation_id": invitation_id
+        "invitation_id": invitation_id,
+        "submission_count": current_user_submission_count
     }
 
 
@@ -795,11 +830,11 @@ def update_challenge_title(
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only the challenge creator can update the title")
     
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only update active challenges")
 
-    # Update title
-    challenge.title = update.title
+    # Update title with stripped whitespace
+    challenge.title = update.title.strip()
     session.add(challenge)
     session.commit()
     session.refresh(challenge)
@@ -826,11 +861,11 @@ def update_challenge_description(
     if challenge.creator_id != current_user_id:
         raise HTTPException(status_code=403, detail="Only the challenge creator can update the description")
     
-    if challenge.end_date < datetime.now(timezone.utc):
+    if is_challenge_ended(challenge.end_date):
         raise HTTPException(status_code=400, detail="Can only update active challenges")
 
-    # Update description
-    challenge.description = update.description
+    # Update description with stripped whitespace
+    challenge.description = update.description.strip() if update.description else None
     session.add(challenge)
     session.commit()
     session.refresh(challenge)
