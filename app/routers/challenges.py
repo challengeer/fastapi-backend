@@ -720,7 +720,7 @@ class ChallengeResponse(BaseModel):
     challenge_id: int
     creator_id: int
     title: str
-    description: str
+    description: Optional[str]
     emoji: str
     category: str
     start_date: datetime

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 class ChallengeBase(SQLModel):
     creator_id: int = Field(foreign_key="user.user_id", index=True)
     title: str = Field(max_length=200)
-    description: str = Field(max_length=1000)
+    description: Optional[str] = Field(max_length=1000)
     emoji: str = Field(max_length=10)
     category: str = Field(max_length=100)
     start_date: datetime
