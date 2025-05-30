@@ -909,19 +909,30 @@ async def delete_challenge(
         )
     )
     
-    # 2. Delete submissions
+    # 2. Delete submission overlays
+    session.exec(
+        delete(SubmissionOverlay)
+        .where(
+            SubmissionOverlay.submission_id.in_(
+                select(Submission.submission_id)
+                .where(Submission.challenge_id == challenge_id)
+            )
+        )
+    )
+    
+    # 3. Delete submissions
     session.exec(
         delete(Submission)
         .where(Submission.challenge_id == challenge_id)
     )
     
-    # 3. Delete invitations
+    # 4. Delete invitations
     session.exec(
         delete(ChallengeInvitation)
         .where(ChallengeInvitation.challenge_id == challenge_id)
     )
     
-    # 4. Delete the challenge
+    # 5. Delete the challenge
     session.delete(challenge)
     session.commit()
 
