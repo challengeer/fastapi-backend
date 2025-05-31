@@ -263,3 +263,14 @@ async def get_sorted_contacts_by_interest(
         result.append(contact_with_score)
     
     return result
+
+@router.delete("/delete-all")
+def delete_all_contacts(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    session.exec(
+        delete(Contact).where(Contact.user_id == current_user_id)
+    )
+    session.commit()
+    return {"message": "All contacts deleted successfully"}
